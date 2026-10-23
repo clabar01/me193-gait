@@ -1,0 +1,6 @@
+paho-mqtt
+numpy
+pandas
+scipy
+scikit-learn
+matplotlib

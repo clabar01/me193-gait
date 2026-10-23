@@ -218,3 +218,12 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ME193 gait project additions
+# NOTE: data/raw/ is intentionally NOT ignored; labeled CSVs are committed.
+# Simulator recordings are fake and stay local.
+data/sim/
+.venv/
+__pycache__/
+.DS_Store
+*.log

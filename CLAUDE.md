@@ -1,0 +1,76 @@
+# CLAUDE.md
+
+Context for Claude Code sessions working in this repo.
+
+## Project
+
+ME193 robotics class project: a wearable gait/activity classifier. It classifies
+**standing, walking, running and biking** (biking can be done as air-biking
+while lying on your back) live while the device is worn.
+
+Due **Oct 27, 2026**. It is graded by 3 peers who each test it live, and it needs
+a Notion page with a demo video, a graphic of the model, and a GitHub link.
+
+## Hardware
+
+- **Arduino Uno Q.** The Linux side runs Python and the microcontroller side runs
+  an Arduino sketch. The two sides talk through **Arduino_RouterBridge**.
+- **MPU-6050 IMU** (accel + gyro) on I2C at 0x68, powered from 3.3V, wired to the
+  Uno Q's labeled SDA/SCL header pins with about 45 cm of twisted wire, and strapped
+  to the front of the mid-thigh.
+- The Uno Q and a power bank ride in a fanny pack on the hip.
+
+## Models (both required, no neural nets)
+
+- **Model 1** uses ONLY the peak acceleration on one axis. The plan is thresholds on
+  peak accel.
+- **Model 2** uses all IMU outputs (accel + gyro). The plan is a shallow decision
+  tree on windowed features: stats, FFT cadence, gyro energy, gravity direction.
+
+## Data and evaluation
+
+- Sample at **50 Hz**. Use **2 s windows with a 1 s step** (100 samples, 50% overlap).
+- Data from **at least 3 people**.
+- Evaluate **leave-one-subject-out**, so every recording must be traceable to a
+  subject and a label.
+
+## Cadence
+
+The IMU is on one thigh, so the thigh swing (gyro) repeats once per **stride**
+(2 steps). The accel also has energy at the step rate (2x stride) from the other
+foot's strike. Typical stride rates: walking ~0.9 Hz, running ~1.4 Hz, biking
+~1.2 Hz, air-biking ~1.1 Hz.
+
+Cadence features (e.g. the FFT peak) must use the **signed `gy` axis** (lateral,
+the thigh's swing axis), **not |gyro|**. The magnitude rectifies the swing, so it
+peaks twice per stride and doubles the apparent cadence.
+
+For display, report cadence as:
+- walking and running: **steps/min = 2 x stride frequency (Hz) x 60**
+- biking and air-biking: **RPM = stride frequency (Hz) x 60**
+
+## Live system
+
+- Classification runs on the **Uno Q Python side**.
+- The **LED matrix** shows an icon per activity.
+- Results publish over **MQTT**: broker `broker.hivemq.com`, port `1883`, topics
+  under `ME193/ceci/gait/`.
+- A **laptop web dashboard** shows both models side by side.
+- Optional later: Whoop heart rate over BLE, shown on the dashboard only. It is
+  **never a model input**.
+
+## Repo layout
+
+- `unoq_app/`: Uno Q app in App Lab style, with `sketch/` (MCU) and `python/` (Linux side)
+- `laptop/`: data logger, training and dashboard scripts
+- `data/raw/`: labeled CSVs from the real sensor (committed, not gitignored)
+- `data/sim/`: recordings of simulator data, saved with `--sim`, with "sim" in
+  the filename. **Training and evaluation scripts must only ever read `data/raw/`.**
+- `models/`: exported model files
+- `figures/`: plots for the Notion page
+
+## Ground rules
+
+- Do not write the reflection answers for the assignment, and do not claim which
+  model is better or put results in the README. The student writes those from real data.
+- Update existing files (README, .gitignore) instead of overwriting them.
