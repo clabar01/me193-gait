@@ -31,9 +31,19 @@ a Notion page with a demo video, a graphic of the model, and a GitHub link.
   Sensor and BusIO). It streams fine, but `Adafruit_MPU6050::reset()` polls a
   register with no timeout, so a bus failure during init can hang the MCU (silent
   monitor; fixed by a power cycle). A direct-register replacement is on branch
-  `wip/direct-register-driver`: its register code works, but the build goes
-  silent at boot unless setup() waits a long time first (40 s worked, 2 s did
-  not). Root cause not found yet. Don't merge it until it has streamed on the board.
+  `wip/direct-register-driver`: its register code works (a traced run streamed at
+  50 Hz). Its "silent at boot" runs were probably the USB monitor proxy described
+  below, not the sketch. Re-test it by reading the USB port (or with USB
+  unplugged) before merging.
+- **After any reflash, power-cycle the board before trusting it** (the student's
+  rule, 2026-10-23). Context: what looked like a "reflash hang" was most likely
+  the board's `arduino-router-serial` service (`socat` from the monitor port
+  127.0.0.1:7500 to `/dev/ttyGS0`). It starts whenever the board's USB port is
+  connected to a computer and takes the monitor connection, so the CSV goes out
+  the USB cable and an SSH `arduino-app-cli monitor` shows nothing. On the cold
+  boot of 2026-10-23 19:05 the sketch streamed perfectly over USB
+  (`/dev/cu.usbmodem*` on the Mac) while the SSH monitor was empty. To check a
+  USB-connected board, read the Mac's USB serial port, not the SSH monitor.
 - Only one `arduino-app-cli monitor` connection gets the output. A stale monitor
   (e.g. left over from a closed SSH session) silently takes it all, and
   `monitor` ignores SIGTERM. Use `timeout -k 2 N arduino-app-cli monitor` and
