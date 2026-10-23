@@ -11,9 +11,11 @@
 //
 // The MPU-6050 is driven with direct register access over Wire instead of the
 // Adafruit library: Adafruit_MPU6050::reset() polls a register with no timeout
-// and hung the sketch when the bus failed mid-init. Every Wire call here is
-// bounded by the Zephyr STM32 I2C driver's 500 ms transfer timeout, and every
-// wait is a fixed delay, so a flaky connection reports an error and recovers.
+// and can hang if the bus fails mid-init. Every Wire return value is checked,
+// every Wire call is bounded by the Zephyr STM32 I2C driver's 500 ms transfer
+// timeout (CONFIG_I2C_STM32_TRANSFER_TIMEOUT_MSEC; this core's Wire has no
+// timeout setting of its own), and every wait is a fixed delay. On failure the
+// sketch prints "# DOWN ..." and retries init every 500 ms.
 //
 // Libraries: Arduino_RouterBridge (bundled with the platform).
 
@@ -27,12 +29,7 @@ const uint32_t SAMPLE_US = SAMPLE_MS * 1000;
 const uint8_t READ_TRIES = 3;
 const uint32_t REINIT_PERIOD_MS = 500;         // how often to retry while the sensor is down
 const uint32_t HEARTBEAT_MS = 5000;
-
-// Wire is I2C2 on PB11 (SDA) / PB10 (SCL), which are also Arduino pins D20/D21
-// (variant overlay). Used only to check and recover the bus, then handed back
-// to I2C with Wire.begin().
-const uint8_t SDA_PIN = 20;
-const uint8_t SCL_PIN = 21;
+const uint32_t STARTUP_SETTLE_MS = 2000;
 
 // MPU-6050 registers and settings
 const uint8_t REG_SMPLRT_DIV = 0x19;
@@ -83,16 +80,15 @@ uint32_t lastHeartbeatMs = 0;
 uint32_t sampleCount = 0;
 uint32_t errorCount = 0;     // failed reads (after all retries)
 uint32_t reinitCount = 0;
-uint32_t recoverCount = 0;   // bus recoveries (SDA was held low)
 
 uint32_t nextUs;             // when the next sample is due
 uint32_t tick = 0;           // sample slot number; t = tick * SAMPLE_MS
 
 void status(const char *msg) {
   char line[128];
-  snprintf(line, sizeof(line), "# %s (samples=%lu, errors=%lu, reinits=%lu, recoveries=%lu)",
+  snprintf(line, sizeof(line), "# %s (samples=%lu, errors=%lu, reinits=%lu)",
            msg, (unsigned long)sampleCount, (unsigned long)errorCount,
-           (unsigned long)reinitCount, (unsigned long)recoverCount);
+           (unsigned long)reinitCount);
   Monitor.println(line);
 }
 
@@ -118,59 +114,26 @@ bool readRegs(uint8_t reg, uint8_t *buf, uint8_t n) {
   return true;
 }
 
-// Check that both bus lines are released (high) by reading them as plain
-// inputs. If a device is holding SDA low (e.g. the MPU-6050 was cut off
-// mid-byte), clock SCL up to 9 times until it lets go, then send a STOP.
-// Lines are only ever pulled low or released, never driven high, so this can't
-// fight the sensor. Wire.begin() hands the pins back to I2C afterwards.
-bool checkAndRecoverBus() {
-  pinMode(SDA_PIN, INPUT);
-  pinMode(SCL_PIN, INPUT);
-  delayMicroseconds(10);
-  bool idle = digitalRead(SDA_PIN) == HIGH && digitalRead(SCL_PIN) == HIGH;
-
-  if (!idle && digitalRead(SCL_PIN) == HIGH) {
-    recoverCount++;
-    for (uint8_t i = 0; i < 9 && digitalRead(SDA_PIN) == LOW; i++) {
-      pinMode(SCL_PIN, OUTPUT);
-      digitalWrite(SCL_PIN, LOW);
-      delayMicroseconds(5);
-      pinMode(SCL_PIN, INPUT);
-      delayMicroseconds(5);
-    }
-    // STOP: SDA low -> high while SCL is high
-    pinMode(SDA_PIN, OUTPUT);
-    digitalWrite(SDA_PIN, LOW);
-    delayMicroseconds(5);
-    pinMode(SDA_PIN, INPUT);
-    delayMicroseconds(5);
-    idle = digitalRead(SDA_PIN) == HIGH && digitalRead(SCL_PIN) == HIGH;
-  }
-
-  Wire.begin();              // re-applies the I2C pin mux
-  Wire.setClock(I2C_HZ);
-  return idle;
-}
-
+// Every step is a single bounded Wire call or a fixed delay; on any failure
+// it prints why and returns false so loop() retries 500 ms later.
 bool initSensor() {
-  if (!checkAndRecoverBus()) {
-    status("bus not idle (SDA or SCL held low): check the IMU wiring");
-    return false;
-  }
+  Wire.begin();
+  Wire.setClock(I2C_HZ);
 
   uint8_t who = 0;
   if (!readRegs(REG_WHO_AM_I, &who, 1)) {
-    status("MPU-6050 not answering at 0x68");
+    status("DOWN: MPU-6050 not answering at 0x68");
     return false;
   }
   if (who != 0x68) {
     char msg[48];
-    snprintf(msg, sizeof(msg), "unexpected WHO_AM_I 0x%02X", who);
+    snprintf(msg, sizeof(msg), "DOWN: unexpected WHO_AM_I 0x%02X", who);
     status(msg);
     return false;
   }
 
   if (!writeReg(REG_PWR_MGMT_1, 0x80)) {       // device reset
+    status("DOWN: reset write failed");
     return false;
   }
   delay(100);                                  // fixed wait, no polling loop
@@ -180,11 +143,16 @@ bool initSensor() {
             && writeReg(REG_GYRO_CONFIG, GYRO_1000DPS)
             && writeReg(REG_ACCEL_CONFIG, ACCEL_8G);
   if (!ok) {
+    status("DOWN: config write failed");
     return false;
   }
 
   uint8_t cfg[2];
-  return readRegs(REG_GYRO_CONFIG, cfg, 2) && cfg[0] == GYRO_1000DPS && cfg[1] == ACCEL_8G;
+  if (!readRegs(REG_GYRO_CONFIG, cfg, 2) || cfg[0] != GYRO_1000DPS || cfg[1] != ACCEL_8G) {
+    status("DOWN: config read-back failed");
+    return false;
+  }
+  return true;
 }
 
 // One read in sensor axes. Rejects I2C errors and stuck-bus data (all three
@@ -242,11 +210,18 @@ void printSample(uint32_t t, const float acc[3], const float gyr[3]) {
 void setup() {
   Bridge.begin();
   Monitor.begin();
+  // Let the router link settle before the first I2C traffic and prints.
+  // Without this the sketch went silent at boot (no output, not even the
+  // heartbeat); the same code streamed fine after a startup wait. Found
+  // empirically on 2026-10-23, root cause in Bridge/Monitor not confirmed.
+  delay(STARTUP_SETTLE_MS);
 
   sensorOk = initSensor();
   lastReinitMs = millis();
   lastHeartbeatMs = millis();
-  status(sensorOk ? "MPU-6050 ready" : "MPU-6050 init failed, will keep retrying");
+  if (sensorOk) {
+    status("MPU-6050 ready");
+  }
   Monitor.println("t,ax,ay,az,gx,gy,gz");
 
   nextUs = micros();
@@ -279,8 +254,10 @@ void loop() {
     if (millis() - lastReinitMs >= REINIT_PERIOD_MS) {
       lastReinitMs = millis();
       reinitCount++;
-      sensorOk = initSensor();
-      status(sensorOk ? "re-init OK" : "re-init failed");
+      sensorOk = initSensor();   // prints "# DOWN: <reason>" on failure
+      if (sensorOk) {
+        status("re-init OK");
+      }
     }
     return;
   }
@@ -300,5 +277,5 @@ void loop() {
   errorCount++;
   sensorOk = false;
   lastReinitMs = millis() - REINIT_PERIOD_MS;   // re-init on the next slot
-  status("read failed, re-initializing");
+  status("DOWN: read failed, re-initializing");
 }
