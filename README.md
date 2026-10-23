@@ -113,8 +113,9 @@ boot, so it runs without SSH or App Lab:
 ssh arduino@<board>.local arduino-app-cli properties set default ~/ArduinoApps/me193_gait
 ```
 
-The sketch prints a `# ok` / `# DOWN` heartbeat every 5 s. If the monitor shows
-nothing at all, the microcontroller is stuck, not just the sensor.
+Only one monitor connection receives the output. If the monitor shows nothing,
+first check for leftover `arduino-app-cli monitor` processes on the board and kill
+them. If it's still silent, power-cycle the board.
 
 ### Recording data
 

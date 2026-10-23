@@ -27,12 +27,19 @@ a Notion page with a demo video, a graphic of the model, and a GitHub link.
   `~/ArduinoApps/me193_gait`, managed with `arduino-app-cli`, and is set as the
   board's default app (`properties set default`) so it starts at boot. Redeploy
   with `app stop` + `app start`; `app restart` can fail with "app is running".
-- The sketch talks to the MPU-6050 with **direct register access over Wire**, not
-  the Adafruit library: `Adafruit_MPU6050::reset()` polls with no timeout and hung
-  the MCU on a flaky bus. Keep every wait bounded. Wire is I2C2 on PB11/PB10 =
-  Arduino pins D20 (SDA) / D21 (SCL); the sketch reads them to check the bus is
-  idle and does a 9-clock recovery before re-init. A `#` heartbeat line is printed
-  every 5 s.
+- The sketch on `main` uses the **Adafruit MPU6050** library (2.2.9, plus Unified
+  Sensor and BusIO). It streams fine, but `Adafruit_MPU6050::reset()` polls a
+  register with no timeout, so a bus failure during init can hang the MCU (silent
+  monitor; fixed by a power cycle). A direct-register replacement is on branch
+  `wip/direct-register-driver`: its register code works, but the build goes
+  silent at boot unless setup() waits a long time first (40 s worked, 2 s did
+  not). Root cause not found yet. Don't merge it until it has streamed on the board.
+- Only one `arduino-app-cli monitor` connection gets the output. A stale monitor
+  (e.g. left over from a closed SSH session) silently takes it all, and
+  `monitor` ignores SIGTERM. Use `timeout -k 2 N arduino-app-cli monitor` and
+  kill leftover monitor processes before concluding the sketch is silent.
+- `AirFour.local` sometimes doesn't resolve after a reboot; the board's IP was
+  192.168.1.173 on 2026-10-23.
 - The Uno Q and a power bank ride in a fanny pack on the hip.
 
 ## Models (both required, no neural nets)
