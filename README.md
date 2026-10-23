@@ -54,6 +54,7 @@ me193-gait/
 ├── unoq_app/        Uno Q app (Arduino App Lab layout)
 │   ├── sketch/      microcontroller sketch: reads the IMU, sends samples over the bridge
 │   └── python/      Linux-side Python: windowing, both classifiers, LED matrix, MQTT
+├── tools/           i2c_scanner/: standalone sketch for checking the IMU wiring
 ├── laptop/          data logger, model training and web dashboard scripts
 ├── data/
 │   ├── raw/         labeled CSV recordings from the real sensor (the only data used for training)
@@ -90,6 +91,19 @@ The scripts are still being written. The workflow will be:
    shows both models' predictions side by side.
 
 The exact commands will be added here as each script is written.
+
+### Deploying to the Uno Q
+
+`unoq_app/` is the complete App Lab app. To deploy it over SSH:
+
+```bash
+scp -r unoq_app/app.yaml unoq_app/python unoq_app/sketch arduino@<board>.local:ArduinoApps/me193_gait/
+ssh arduino@<board>.local arduino-app-cli app restart ~/ArduinoApps/me193_gait
+ssh arduino@<board>.local arduino-app-cli monitor     # watch the CSV output
+```
+
+The first time, create the app on the board with
+`arduino-app-cli app new me193_gait`, or open it in App Lab.
 
 ### Recording data
 

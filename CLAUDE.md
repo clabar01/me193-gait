@@ -18,6 +18,13 @@ a Notion page with a demo video, a graphic of the model, and a GitHub link.
 - **MPU-6050 IMU** (accel + gyro) on I2C at 0x68, powered from 3.3V, wired to the
   Uno Q's labeled SDA/SCL header pins with about 45 cm of twisted wire, and strapped
   to the front of the mid-thigh.
+- The sketch subtracts a **hardcoded gyro bias** (`GYRO_BIAS_DPS` in
+  `unoq_app/sketch/sketch.ino`). It is specific to this MPU-6050 board, is in
+  sensor axes (before the remap), and must be re-measured if the board is
+  swapped. There is deliberately no startup calibration, because the wearer may
+  be moving at boot.
+- The board is reachable at `arduino@AirFour.local` (SSH, no password). The app is
+  `~/ArduinoApps/me193_gait`, managed with `arduino-app-cli`.
 - The Uno Q and a power bank ride in a fanny pack on the hip.
 
 ## Models (both required, no neural nets)
