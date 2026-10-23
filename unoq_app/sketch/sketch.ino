@@ -70,8 +70,9 @@ bool initSensor() {
     return false;
   }
   Wire.setClock(I2C_HZ);     // after begin(), which may reset the bus clock
-  mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
-  mpu.setGyroRange(MPU6050_RANGE_1000_DEG);
+  // +/-8 g and +/-1000 deg/s saturated while running (2026-10-23)
+  mpu.setAccelerometerRange(MPU6050_RANGE_16_G);
+  mpu.setGyroRange(MPU6050_RANGE_2000_DEG);
   mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
   return true;
 }

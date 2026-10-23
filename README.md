@@ -120,7 +120,9 @@ them. If it's still silent, power-cycle the board.
 ### Recording data
 
 ```bash
-python laptop/logger.py
+python laptop/logger.py                  # timed: 5 s countdown, then 60 s
+python laptop/logger.py --duration 30    # timed, 30 s
+python laptop/logger.py --duration 0     # manual: space to stop
 ```
 
 The logger asks for the subject's name. Then use these keys:
@@ -132,12 +134,25 @@ The logger asks for the subject's name. Then use these keys:
 | `2` | record running |
 | `3` | record biking |
 | `4` | record air-biking |
-| space | stop and save the current recording |
+| space | stop and save the current recording (or cancel a countdown) |
 | `q` | quit |
 
-Each recording is saved as `data/raw/<subject>_<activity>_<timestamp>.csv`, with the
-first and last 3 s trimmed off. While it runs, the logger shows a live sample count and
-warns if the rate drops below 45 Hz or samples go missing.
+**Timed mode (default).** After an activity key there is a 5 s countdown with a beep
+each second, then a "go" sound. The recording stops by itself after exactly
+`--duration` seconds, plays a distinct end sound, and saves. Turn the laptop volume
+up so you can hear it away from the screen; `--no-beep` silences it.
+
+**Manual mode** (`--duration 0`). Recording starts at once and runs until space. The
+first and last 3 s are trimmed off.
+
+Each recording is saved as `data/raw/<subject>_<activity>_<timestamp>.csv`. While it
+runs, the logger shows a live sample count and warns if the rate drops below 45 Hz or
+samples go missing. After saving, it checks the recording and prints a large warning
+(with a warning sound) if:
+
+- a non-standing recording has more than 15% of its 1 s windows with mean |gyro|
+  under 20 deg/s ("REDO: lots of stillness ..."), or
+- any sample hit the ±16 g or ±2000 deg/s sensor range.
 
 To plot a recording:
 

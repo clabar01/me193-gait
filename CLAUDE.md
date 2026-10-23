@@ -18,6 +18,10 @@ a Notion page with a demo video, a graphic of the model, and a GitHub link.
 - **MPU-6050 IMU** (accel + gyro) on I2C at 0x68, powered from 3.3V, wired to the
   Uno Q's labeled SDA/SCL header pins with about 45 cm of twisted wire, and strapped
   to the front of the mid-thigh.
+- Sensor ranges: **±16 g** and **±2000 deg/s**, 21 Hz low-pass. Raised from ±8 g /
+  ±1000 deg/s on 2026-10-23 after a running recording saturated; recordings made
+  before then used the old ranges (values below the old limits are in the same
+  units, just coarser). `laptop/logger.py`'s range check must match the sketch.
 - The sketch subtracts a **hardcoded gyro bias** (`GYRO_BIAS_DPS` in
   `unoq_app/sketch/sketch.ino`). It is specific to this MPU-6050 board, is in
   sensor axes (before the remap), and must be re-measured if the board is
