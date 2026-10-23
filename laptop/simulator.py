@@ -57,9 +57,11 @@ THIGH_RADIUS_M = 0.15    # hip joint to sensor, for tangential accel
 
 # Sensor axes, with the IMU on the front of the mid-thigh:
 #   x along the thigh, pointing toward the hip (reads +1 g standing)
-#   y lateral
+#   y lateral, pointing to the wearer's right (y = z x x, right-handed)
 #   z out of the front of the thigh
-# The thigh pitch is a rotation about y: 0 deg = thigh vertical,
+# The thigh pitch is a rotation about +y, so gy = +d(pitch)/dt: positive when
+# sitting down or swinging the thigh forward, as on the real sensor.
+# 0 deg = thigh vertical,
 # 90 deg = thigh horizontal (seated), >90 deg = knee above hip (lying on back
 # with legs raised), which puts gravity on -x/+z instead of +x.
 #

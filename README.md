@@ -98,12 +98,23 @@ The exact commands will be added here as each script is written.
 
 ```bash
 scp -r unoq_app/app.yaml unoq_app/python unoq_app/sketch arduino@<board>.local:ArduinoApps/me193_gait/
-ssh arduino@<board>.local arduino-app-cli app restart ~/ArduinoApps/me193_gait
+ssh arduino@<board>.local arduino-app-cli app stop ~/ArduinoApps/me193_gait
+ssh arduino@<board>.local arduino-app-cli app start ~/ArduinoApps/me193_gait
 ssh arduino@<board>.local arduino-app-cli monitor     # watch the CSV output
 ```
 
+Use `stop` then `start`: `app restart` sometimes fails with "app is running".
+
 The first time, create the app on the board with
-`arduino-app-cli app new me193_gait`, or open it in App Lab.
+`arduino-app-cli app new me193_gait`, or open it in App Lab. Then make it start at
+boot, so it runs without SSH or App Lab:
+
+```bash
+ssh arduino@<board>.local arduino-app-cli properties set default ~/ArduinoApps/me193_gait
+```
+
+The sketch prints a `# ok` / `# DOWN` heartbeat every 5 s. If the monitor shows
+nothing at all, the microcontroller is stuck, not just the sensor.
 
 ### Recording data
 

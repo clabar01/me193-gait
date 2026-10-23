@@ -24,7 +24,15 @@ a Notion page with a demo video, a graphic of the model, and a GitHub link.
   swapped. There is deliberately no startup calibration, because the wearer may
   be moving at boot.
 - The board is reachable at `arduino@AirFour.local` (SSH, no password). The app is
-  `~/ArduinoApps/me193_gait`, managed with `arduino-app-cli`.
+  `~/ArduinoApps/me193_gait`, managed with `arduino-app-cli`, and is set as the
+  board's default app (`properties set default`) so it starts at boot. Redeploy
+  with `app stop` + `app start`; `app restart` can fail with "app is running".
+- The sketch talks to the MPU-6050 with **direct register access over Wire**, not
+  the Adafruit library: `Adafruit_MPU6050::reset()` polls with no timeout and hung
+  the MCU on a flaky bus. Keep every wait bounded. Wire is I2C2 on PB11/PB10 =
+  Arduino pins D20 (SDA) / D21 (SCL); the sketch reads them to check the bus is
+  idle and does a 9-clock recovery before re-init. A `#` heartbeat line is printed
+  every 5 s.
 - The Uno Q and a power bank ride in a fanny pack on the hip.
 
 ## Models (both required, no neural nets)
@@ -47,6 +55,13 @@ The IMU is on one thigh, so the thigh swing (gyro) repeats once per **stride**
 (2 steps). The accel also has energy at the step rate (2x stride) from the other
 foot's strike. Typical stride rates: walking ~0.9 Hz, running ~1.4 Hz, biking
 ~1.2 Hz, air-biking ~1.1 Hz.
+
+Body frame and sign convention (right-handed, verified on the real sensor):
+x along the thigh toward the hip (+1 g standing), z out of the front of the
+thigh (+1 g sitting), y = z × x pointing to the wearer's **right**. Sitting down,
+or swinging the thigh forward, is a positive rotation about y, so **gy > 0**
+(about +85 deg/s peak in the sit-down check). The simulator uses the same sign:
+its gy = +d(pitch)/dt, and pitch increases toward sitting.
 
 Cadence features (e.g. the FFT peak) must use the **signed `gy` axis** (lateral,
 the thigh's swing axis), **not |gyro|**. The magnitude rectifies the swing, so it
