@@ -95,6 +95,18 @@ For display, report cadence as:
 - Results publish over **MQTT**: broker `broker.hivemq.com`, port `1883`, topics
   under `ME193/ceci/gait/`.
 - A **laptop web dashboard** shows both models side by side.
+- **Data path (Phase 2, working 2026-10-23):** sketch → `Bridge.notify("imu_sample",
+  t, ax, ay, az, gx, gy, gz)` at 50 Hz → `unoq_app/python/main.py` batches 5
+  samples → `ME193/ceci/gait/raw` (~10 msg/s, the format `laptop/logger.py` and
+  the simulator use). The Bridge handler only appends to a batch; a separate
+  thread publishes from a 30 s bounded queue, so MQTT can't slow the sensor and
+  short WiFi drops don't lose data. paho reconnects by itself.
+  `ME193/ceci/gait/status` (every 5 s) carries board wall time, last `t`, rate,
+  queue depth and the sketch's last status line. Measured: 49.93 samples/s, no
+  gaps in 55 s; board→laptop lag median ~113 ms (p90 ~183 ms), about the same as
+  the laptop's own HiveMQ round trip, so the public broker dominates.
+- The sketch's per-sample CSV on Monitor is off (`PRINT_CSV = false`) to keep the
+  router link light; `#` status lines still print.
 - Optional later: Whoop heart rate over BLE, shown on the dashboard only. It is
   **never a model input**.
 

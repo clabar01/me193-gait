@@ -1,12 +1,15 @@
-// Phase 1: read the MPU-6050 at 50 Hz and print CSV to the App Lab monitor.
+// Read the MPU-6050 at 50 Hz and send each sample to the Python side.
 //
 // Sensor: MPU-6050 at 0x68 on Wire (labeled SDA/SCL header pins), 100 kHz.
-// Output (Monitor, not Serial):  t,ax,ay,az,gx,gy,gz
+// Each sample goes to Python with Bridge.notify("imu_sample", t, ax, ay, az,
+// gx, gy, gz) (fire-and-forget, never waits on Python), which publishes it to
+// MQTT. Status messages go to both Monitor ('#' lines) and Bridge.notify
+// ("imu_status", text), so they also appear in the app's Python logs.
 //   t   integer ms since start, steps of exactly 20 ms; a skipped sample
 //       shows up as a gap in t
 //   a*  g, body frame (see AXIS REMAP below)
 //   g*  deg/s, body frame
-// Lines starting with '#' are status messages, not data.
+// PRINT_CSV also prints every sample to Monitor as "t,ax,ay,az,gx,gy,gz".
 //
 // Libraries: Arduino_RouterBridge, Adafruit MPU6050 (+ Adafruit Unified
 // Sensor and Adafruit BusIO, which it depends on).
@@ -22,6 +25,7 @@ const uint32_t SAMPLE_MS = 20;                 // 50 Hz
 const uint32_t SAMPLE_US = SAMPLE_MS * 1000;
 const uint8_t READ_TRIES = 3;
 const uint32_t REINIT_PERIOD_MS = 500;         // how often to retry while the sensor is down
+const bool PRINT_CSV = false;                  // true: also print every sample to Monitor (testing)
 
 // Gyro zero-rate bias of THIS board's MPU-6050, deg/s, in SENSOR axes (X, Y, Z
 // as printed on the board, before the remap). Measured at rest over 10 s on
@@ -129,9 +133,11 @@ void printSample(uint32_t t, const float acc[3], const float gyr[3]) {
 
 void status(const char *msg) {
   char line[96];
-  snprintf(line, sizeof(line), "# %s (errors=%lu, reinits=%lu)", msg,
+  snprintf(line, sizeof(line), "%s (errors=%lu, reinits=%lu)", msg,
            (unsigned long)errorCount, (unsigned long)reinitCount);
+  Monitor.print("# ");
   Monitor.println(line);
+  Bridge.notify("imu_status", line);
 }
 
 void setup() {
@@ -141,7 +147,9 @@ void setup() {
   sensorOk = initSensor();
   lastReinitMs = millis();
   status(sensorOk ? "MPU-6050 ready" : "MPU-6050 not found, will keep retrying");
-  Monitor.println("t,ax,ay,az,gx,gy,gz");
+  if (PRINT_CSV) {
+    Monitor.println("t,ax,ay,az,gx,gy,gz");
+  }
 
   nextUs = micros();
 }
@@ -180,7 +188,10 @@ void loop() {
       float acc[3], gyr[3];
       toBody(sAcc, acc);
       toBody(sGyr, gyr);
-      printSample(t, acc, gyr);
+      Bridge.notify("imu_sample", t, acc[0], acc[1], acc[2], gyr[0], gyr[1], gyr[2]);
+      if (PRINT_CSV) {
+        printSample(t, acc, gyr);
+      }
       return;
     }
   }
