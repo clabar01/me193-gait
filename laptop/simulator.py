@@ -24,12 +24,25 @@ other foot halfway through the stride.
     biking       ~1.2        ~1.2 Hz              ~1.2 Hz, small and smooth
     air-biking   ~1.1        ~1.1 Hz              ~1.1 Hz, small and smooth
 
+It also publishes a board-style status message every 5 s to
+ME193/ceci/gait/status (see unoq_app/python/main.py), so the dashboard's
+connection indicator works without the board.
+
+--pred also publishes fake predictions once per second to ME193/ceci/gait/pred,
+in the format the board will use (see CLAUDE.md):
+    {"t": <ms, last sample>, "model1": "walking", "model2": "walking",
+     "cadence_hz": 0.9}
+model2 is always the true activity (air-biking -> "biking"). model1 calls
+biking "walking" about PRED_M1_BIKING_MISS of the time, to mimic its expected
+weakness. cadence_hz is the stride rate (0 when standing).
+
 Keys while running:
     s standing   w walking   r running   b biking   a air-biking   q quit
 
 Usage:
     python laptop/simulator.py
     python laptop/simulator.py --random --subject p2
+    python laptop/simulator.py --random --pred      # for the dashboard
 """
 
 import argparse
@@ -50,6 +63,11 @@ import paho.mqtt.client as mqtt
 BROKER = "broker.hivemq.com"
 PORT = 1883
 TOPIC = "ME193/ceci/gait/raw"
+PRED_TOPIC = "ME193/ceci/gait/pred"
+STATUS_TOPIC = "ME193/ceci/gait/status"
+PRED_PERIOD_S = 1        # one prediction per 1 s window step, like the board
+STATUS_PERIOD_S = 5
+PRED_M1_BIKING_MISS = 0.4   # fraction of biking predictions model1 gets wrong (says walking)
 FS = 50                  # sample rate, Hz
 BATCH = 5                # samples per message -> 10 messages/s
 RANDOM_PERIOD_S = 20     # seconds between activity changes with --random
@@ -189,6 +207,16 @@ def make_client():
         return mqtt.Client()
 
 
+def fake_prediction(sim, t_ms):
+    """A prediction message for the current activity (FAKE, for the dashboard)."""
+    label = "biking" if sim.name == "air-biking" else sim.name
+    model1 = label
+    if label == "biking" and random.random() < PRED_M1_BIKING_MISS:
+        model1 = "walking"
+    cadence = 0.0 if sim.name == "standing" else round(sim.cycle_freq, 2)
+    return {"t": t_ms, "model1": model1, "model2": label, "cadence_hz": cadence}
+
+
 def main():
     ap = argparse.ArgumentParser(description="Publish FAKE thigh-IMU data over MQTT (testing only).")
     ap.add_argument("--broker", default=BROKER)
@@ -199,7 +227,13 @@ def main():
     ap.add_argument("--random", action="store_true",
                     help=f"switch to a random activity every {RANDOM_PERIOD_S} s")
     ap.add_argument("--activity", choices=ACTIVITIES, default="standing", help="starting activity")
+    ap.add_argument("--pred", action="store_true",
+                    help=f"also publish fake model predictions to {PRED_TOPIC}")
     args = ap.parse_args()
+    # pred/status topics sit next to the raw topic, so a test --topic
+    # (e.g. ME193/ceci/gait/test/raw) never touches the real ones
+    base = args.topic[:-len("/raw")] if args.topic.endswith("/raw") else args.topic
+    pred_topic, status_topic = f"{base}/pred", f"{base}/status"
 
     sim = ThighImuSim(args.subject, random.Random())
     sim.set_activity(args.activity)
@@ -248,6 +282,12 @@ def main():
             if len(batch) == BATCH:
                 client.publish(args.topic, json.dumps(batch))
                 batch = []
+            if args.pred and n % (FS * PRED_PERIOD_S) == 0:
+                client.publish(pred_topic, json.dumps(fake_prediction(sim, round(t * 1000))))
+            if n % (FS * STATUS_PERIOD_S) == 0:
+                client.publish(status_topic, json.dumps({
+                    "wall": round(time.time(), 3), "t": round(t * 1000), "rate_hz": float(FS),
+                    "queued": 0, "dropped": 0, "mqtt": True, "mcu": "simulator"}))
     except KeyboardInterrupt:
         pass
     finally:

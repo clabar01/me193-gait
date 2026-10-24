@@ -109,6 +109,19 @@ For display, report cadence as:
   queue depth and the sketch's last status line. Measured: 49.93 samples/s, no
   gaps in 55 s; board→laptop lag median ~113 ms (p90 ~183 ms), about the same as
   the laptop's own HiveMQ round trip, so the public broker dominates.
+- **Prediction format (defined 2026-10-23; the board must publish exactly this):**
+  topic `ME193/ceci/gait/pred`, one message per 1 s window step, JSON
+  `{"t": <ms, t of the window's last sample>, "model1": <label>, "model2": <label>,
+  "cadence_hz": <stride frequency, 0 when standing>}`. Labels are exactly
+  `standing`, `walking`, `running`, `biking` (air-biking is reported as `biking`).
+  `laptop/simulator.py --pred` publishes fake predictions in this format.
+- **Dashboard:** `laptop/dashboard.html`, a single file, MQTT over WebSockets
+  (`wss://broker.hivemq.com:8884/mqtt`, mqtt.js from jsDelivr). It only subscribes,
+  never publishes; the viewer's name stays in the page (public broker). The avatar
+  follows model2; upright bike vs air-bike comes from the mean `ax` over the last
+  2 s of raw (below -0.3 g = lying on back). The connection light uses the status
+  topic (the simulator publishes one too). `HEAD_PHOTO` in the file swaps the head
+  circle for a face photo.
 - The sketch's per-sample CSV on Monitor is off (`PRINT_CSV = false`) to keep the
   router link light; `#` status lines still print.
 - Optional later: Whoop heart rate over BLE, shown on the dashboard only. It is
@@ -123,6 +136,28 @@ For display, report cadence as:
   the filename. **Training and evaluation scripts must only ever read `data/raw/`.**
 - `models/`: exported model files
 - `figures/`: plots for the Notion page
+
+## Shared feature code
+
+- **`unoq_app/python/features.py` is the one feature module** for both training
+  (laptop) and live classification (board). It lives in the board app folder so it
+  is deployed with the app; laptop scripts add `unoq_app/python` to `sys.path` and
+  import it. Never duplicate feature code elsewhere: training and live must compute
+  features identically. Phase 4 (models) builds on this module.
+- **`despike()` runs first, before every feature, including Model 1's peak accel.**
+  It replaces a sample with its neighbours' average when, on any axis, it is more
+  than 6 g / 500 deg/s from both neighbours while the neighbours are within
+  3 g / 250 deg/s of each other (a corrupted I2C read). Apply it to the continuous
+  stream (whole recording, or a rolling buffer on the board), not to each 2 s
+  window alone, so window-edge samples have both neighbours.
+- The thresholds are deliberately high: at 3 g / 300 deg/s it also removed
+  single-axis 4-5.5 g accel peaks in walking that look like real heel strikes,
+  which Model 1 needs. On the 2026-10-23 data it replaces the known glitch
+  (air-biking t=1630800) and one sample inside a saturated burst (t=1603660).
+  Re-check it on the first running recording at +/-16 g.
+- The board's Python container doesn't have numpy yet: add it to
+  `unoq_app/python/requirements.txt` when features.py is first used live.
+- Tests: `python laptop/test_features.py`.
 
 ## Ground rules
 

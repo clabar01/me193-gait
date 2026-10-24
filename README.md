@@ -161,6 +161,18 @@ python laptop/plot_raw.py data/raw/<file>.csv                 # opens a window
 python laptop/plot_raw.py data/raw/<file>.csv --out figures/x.png
 ```
 
+### Live dashboard
+
+Open `laptop/dashboard.html` in a browser (double-click it); it needs internet. Enter
+a name and press Start. Press `F` for fullscreen. The page only listens to MQTT and
+never sends anything, so the name stays on that screen.
+
+To try it without the board, run the simulator with predictions in another terminal:
+
+```bash
+python laptop/simulator.py --random --pred
+```
+
 ### Testing without the hardware
 
 `laptop/simulator.py` publishes **fake** IMU data in the same MQTT format as the Uno Q.
