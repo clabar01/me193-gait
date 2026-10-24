@@ -122,6 +122,9 @@ For display, report cadence as:
   2 s of raw (below -0.3 g = lying on back). The connection light uses the status
   topic (the simulator publishes one too). `HEAD_PHOTO` in the file swaps the head
   circle for a face photo.
+  "Switch player" returns to the name screen and replaces the page's `player`
+  object (name, face photo); put any per-player stats in that object so they
+  reset with it. The MQTT connection stays open across players (no reconnect).
 - The sketch's per-sample CSV on Monitor is off (`PRINT_CSV = false`) to keep the
   router link light; `#` status lines still print.
 - Optional later: Whoop heart rate over BLE, shown on the dashboard only. It is

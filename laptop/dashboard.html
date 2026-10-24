@@ -12,6 +12,8 @@
     ME193/ceci/gait/status  {wall, t, rate_hz, ...}           -> connection indicator
   Test without the board: python laptop/simulator.py --random --pred
   Keys: F fullscreen. Add ?name=Ceci to the file URL to skip the start screen.
+  "Switch player" returns to the name screen and resets the player; the MQTT
+  connection stays open so the next player sees live data immediately.
   ?prefix=ME193/ceci/gait/test uses <prefix>/raw|pred|status instead (testing
   with simulator.py --topic ME193/ceci/gait/test/raw).
 -->
@@ -77,6 +79,7 @@
   button, input { font: inherit; color: inherit; }
 
   /* ---------- start screen ---------- */
+  .start[hidden] { display: none; }
   .start {
     position: fixed; inset: 0;
     display: grid; place-items: center;
@@ -228,6 +231,7 @@
       <div id="conn" class="conn" data-state="idle" role="status" aria-live="polite">
         <span class="dot"></span><span id="connText">Connecting…</span>
       </div>
+      <button id="switchBtn" class="fs" type="button" title="Back to the name screen for the next player">Switch player</button>
       <button id="fsBtn" class="fs" type="button" title="Fullscreen (F)">Fullscreen</button>
     </div>
   </header>
@@ -305,8 +309,20 @@ const DEFAULT_CADENCE = { walking: 0.9, running: 1.4, biking: 1.2 };
 const $ = (id) => document.getElementById(id);
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
-// ---------------- state (name stays in this variable only) ----------------
-let userName = "";
+// ---------------- player (name stays in this object only) ----------------
+// Everything that belongs to one player. "Switch player" replaces it with a
+// fresh one, so per-player stats (and a per-player face photo) added here
+// reset together.
+function newPlayer(name) {
+  return {
+    name,
+    photo: HEAD_PHOTO ? Object.assign(new Image(), { src: HEAD_PHOTO }) : null,
+  };
+}
+let player = newPlayer("");
+
+// ---------------- data stream state (shared by all players) ----------------
+let client = null;
 let mqttUp = false;
 let pred = null, predAt = 0;
 let status = null, statusAt = 0;
@@ -315,16 +331,35 @@ const raw = [];               // {t, mag, ax}
 let bikeVariant = "upright";  // "upright" | "air"
 
 // ---------------- start screen ----------------
+let animating = false;
+
 function start(name) {
-  userName = name.trim().slice(0, 40);
-  if (!userName) return;
-  $("who").textContent = userName;
-  $("start").remove();
+  name = name.trim().slice(0, 40);
+  if (!name) return;
+  player = newPlayer(name);
+  $("who").textContent = player.name;
+  $("start").hidden = true;
   $("app").hidden = false;
-  connect();
-  requestAnimationFrame(frame);
+  if (!client) connect();          // once; kept open across players
+  if (!animating) { animating = true; requestAnimationFrame(frame); }
+}
+
+function switchPlayer() {
+  player = newPlayer("");
+  $("who").textContent = "";
+  $("nameInput").value = "";
+  $("app").hidden = true;
+  $("start").hidden = false;
+  $("nameInput").focus();
+  // drop ?name= so a reload doesn't bring the previous player back
+  const url = new URL(location.href);
+  if (url.searchParams.has("name")) {
+    url.searchParams.delete("name");
+    history.replaceState(null, "", url);
+  }
 }
 $("startForm").addEventListener("submit", (e) => { e.preventDefault(); start($("nameInput").value); });
+$("switchBtn").addEventListener("click", switchPlayer);
 const urlName = new URLSearchParams(location.search).get("name");
 if (urlName) start(urlName);
 
@@ -345,7 +380,7 @@ document.addEventListener("fullscreenchange", () => {
 // ---------------- MQTT (subscribe only, never publish) ----------------
 function connect() {
   const clientId = "me193dash_" + Math.random().toString(16).slice(2, 10);
-  const client = mqtt.connect(CONFIG.brokerUrl, {
+  client = mqtt.connect(CONFIG.brokerUrl, {
     clientId, clean: true, reconnectPeriod: 2000, connectTimeout: 10000,
   });
   const decoder = new TextDecoder();
@@ -574,7 +609,6 @@ function poseName(now) {
 }
 
 // ---------------- drawing ----------------
-const headImg = HEAD_PHOTO ? Object.assign(new Image(), { src: HEAD_PHOTO }) : null;
 
 function fitCanvas(canvas) {
   const dpr = window.devicePixelRatio || 1;
@@ -634,6 +668,7 @@ function drawAvatar(pose, bikeAlpha) {
 
   // ===== HEAD (placeholder: plain circle, or HEAD_PHOTO clipped to the circle) =====
   const hx = X(pose.head), hy = Y(pose.head), hr = L.head * s;
+  const headImg = player.photo;
   if (headImg && headImg.complete && headImg.naturalWidth) {
     ctx.save();
     ctx.beginPath(); ctx.arc(hx, hy, hr, 0, 2 * Math.PI); ctx.clip();
