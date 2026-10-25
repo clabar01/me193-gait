@@ -4,8 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Gait Dashboard</title>
+<link rel="icon" href="data:,">
 <!--
-  ME193 live gait dashboard. Open this file in a browser (double-click it).
+  ME193 live gait dashboard. Start it with python laptop/serve.py (double-clicking
+  the file works too, but then only the stick figure avatar is available).
   It subscribes (never publishes) to MQTT over WebSockets on broker.hivemq.com:
     ME193/ceci/gait/pred    {t, model1, model2, cadence_hz}   -> avatar, cards, cadence
     ME193/ceci/gait/raw     [{t, ax, ay, az, gx, gy, gz}, ...] -> accel plot, bike vs air-bike
@@ -18,8 +20,19 @@
   connection stays open so the next player sees live data immediately.
   ?prefix=ME193/ceci/gait/test uses <prefix>/raw|pred|status instead (testing
   with simulator.py --topic ME193/ceci/gait/test/raw).
+  3D avatar: three.js + the Mixamo FBX files in laptop/assets/ (see the 3D AVATAR
+  module at the end). Browsers block a double-clicked file from loading them, so
+  serve the folder: python laptop/serve.py. Opened as a file, or if anything fails
+  to load, the stick figure is used. The 3D/Stick button switches by hand
+  (remembered in this browser); ?avatar=stick or ?avatar=3d overrides it.
 -->
 <script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<script type="importmap">
+{ "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
 <style>
   :root {
     --bg: #f4f3f0;
@@ -170,6 +183,13 @@
 
   .avatar { grid-area: avatar; position: relative; display: flex; flex-direction: column; }
   .avatar canvas { flex: 1; width: 100%; min-height: 0; display: block; }
+  .avatar canvas[hidden] { display: none; }
+  .avatar-tools {
+    position: absolute; top: clamp(10px, 1.2vw, 18px); right: clamp(10px, 1.2vw, 18px);
+    display: flex; align-items: center; gap: 10px; z-index: 1;
+  }
+  .avatar-tools .note { font-size: clamp(0.8rem, 1vw, 1rem); color: var(--muted); text-align: right; }
+  .avatar-tools button[hidden] { display: none; }
   .caption {
     font-size: clamp(1.2rem, 2.2vw, 2.4rem); font-weight: 600;
     text-align: center; color: var(--text-2); padding-top: 6px;
@@ -270,7 +290,12 @@
   </section>
 
   <section class="avatar card" aria-label="Avatar driven by Model 2">
+    <div class="avatar-tools">
+      <span id="avatarNote" class="note"></span>
+      <button id="avatarBtn" class="fs" type="button" hidden>Stick figure</button>
+    </div>
     <canvas id="avatar"></canvas>
+    <canvas id="avatar3d" hidden></canvas>
     <div id="caption" class="caption">Waiting for predictions…</div>
   </section>
 
@@ -329,7 +354,8 @@ if (testPrefix) {
 // To show a face instead of the plain head circle: put a photo (roughly square,
 // face centred) in the same folder as this file and set its name here, e.g.
 //   const HEAD_PHOTO = "face.png";
-// It is drawn clipped to the head circle. Leave "" for the plain head.
+// It is drawn clipped to the head circle, and on the 3D avatar as a round
+// sprite that follows the head bone. Leave "" for the plain head.
 const HEAD_PHOTO = "";
 // ==================================================================
 
@@ -503,6 +529,47 @@ for (const btn of document.querySelectorAll(".testbar button")) {
     renderTest();
   });
 }
+
+// ---------------- avatar mode: 3D or stick figure ----------------
+// The 3D avatar is built by the module script at the end of this file. Until it
+// has loaded, and for good if it can't (opened as a file, no internet, missing
+// FBX files), the stick figure is drawn.
+let avatarWant = avatarPref();     // "3d" | "stick": the viewer's choice
+let avatar3d = null;               // {update(name, cadenceHz, bikeAlpha, dt, photo)} once loaded
+let avatar3dState = "loading";     // "loading" | "ready" | "failed"
+let avatar3dError = "";
+
+function avatarPref() {
+  const q = new URLSearchParams(location.search).get("avatar");
+  if (q === "3d" || q === "stick") return q;
+  try { return localStorage.getItem("me193.avatar") === "stick" ? "stick" : "3d"; } catch { return "3d"; }
+}
+
+function use3d() { return avatarWant === "3d" && avatar3dState === "ready"; }
+
+function renderAvatarMode() {
+  const on3d = use3d();
+  $("avatar").hidden = on3d;
+  $("avatar3d").hidden = !on3d;
+  const btn = $("avatarBtn");
+  btn.hidden = avatar3dState !== "ready";
+  btn.textContent = on3d ? "Stick figure" : "3D avatar";
+  let note = "";
+  if (avatarWant === "3d" && avatar3dState === "loading") note = "Loading 3D…";
+  if (avatarWant === "3d" && avatar3dState === "failed") note = `3D off: ${avatar3dError}`;
+  $("avatarNote").textContent = note;
+}
+
+$("avatarBtn").addEventListener("click", () => {
+  avatarWant = use3d() ? "stick" : "3d";
+  try { localStorage.setItem("me193.avatar", avatarWant); } catch {}
+  renderAvatarMode();
+});
+
+// called by the 3D module
+window.avatar3dReady = (api) => { avatar3d = api; avatar3dState = "ready"; renderAvatarMode(); };
+window.avatar3dFailed = (why) => { avatar3dState = "failed"; avatar3dError = why; renderAvatarMode(); };
+renderAvatarMode();
 
 // ---------------- connection indicator ----------------
 function connectionState(now) {
@@ -823,6 +890,8 @@ function frame(now) {
   const fresh = predFresh(now);
   const target = name === "standing" ? 0
     : (fresh && pred.cadence_hz > 0 ? pred.cadence_hz : DEFAULT_CADENCE[pred?.model2] ?? 1);
+  // starting to move: begin at the measured cadence instead of ramping up from 0
+  if (shownPose === "standing" && name !== "standing") cadSmooth = target;
   cadSmooth += (target - cadSmooth) * (1 - Math.exp(-dt / CONFIG.cadenceTauS));
   phase += (name === "standing" ? 0.25 : Math.max(cadSmooth, 0.3)) * dt;
 
@@ -836,12 +905,241 @@ function frame(now) {
   lastDrawn = pose;
 
   bikeAlpha += ((name === "bike" ? 1 : 0) - bikeAlpha) * (1 - Math.exp(-dt / 0.25));
-  drawAvatar(pose, bikeAlpha);
+  if (use3d()) avatar3d.update(name, Math.max(cadSmooth, 0.3), bikeAlpha, dt, player.photo);
+  else drawAvatar(pose, bikeAlpha);
   drawPlot();
   if (now - lastPanel > 100) { updatePanels(now); lastPanel = now; }
   requestAnimationFrame(frame);
 }
 let lastDrawn = null;
+</script>
+
+<script type="module">
+// ===================== 3D AVATAR (three.js + Mixamo FBX) =====================
+// Mixamo files in laptop/assets/ (not in git, see laptop/assets/README.md).
+// CHARACTER supplies the mesh; each pose takes the first animation in its file.
+// Every clip loops one stride (walking, running) or one pedal turn (bike,
+// air-bike), so playback rate = cadence (Hz) x clip length. If a new download
+// loops twice per file, set its CYCLES to 2.
+const ASSET_DIR = "assets/";
+const CHARACTER = "Standing Idle.fbx";
+const CLIPS = {
+  standing: "Standing Idle.fbx",
+  walking:  "Walking.fbx",
+  running:  "Running.fbx",
+  bike:     "Flying Bicycle Kick.fbx",   // seated, hands on bars, pedalling: upright biking
+  airbike:  "Bicycle Crunch.fbx",        // lying on the back, pedalling
+};
+const CYCLES = { walking: 1, running: 1, bike: 1, airbike: 1 };
+const VIEW_AZIMUTH = -65 * Math.PI / 180;   // camera angle round the body; mostly side-on, facing right
+const PHOTO_SIZE = 26;                      // face sprite diameter (cm, model units)
+
+async function initAvatar3d() {
+  if (location.protocol === "file:") throw new Error("serve the page with python laptop/serve.py");
+  let THREE, FBXLoader;
+  try {
+    THREE = await import("three");
+    ({ FBXLoader } = await import("three/addons/loaders/FBXLoader.js"));
+  } catch {
+    throw new Error("couldn't load three.js (no internet?)");
+  }
+
+  const loader = new FBXLoader();
+  const files = {};
+  for (const f of new Set([CHARACTER, ...Object.values(CLIPS)])) {
+    files[f] = loader.loadAsync(ASSET_DIR + encodeURIComponent(f)).catch(() => {
+      throw new Error(`missing ${ASSET_DIR}${f}`);
+    });
+  }
+  const character = await files[CHARACTER];
+
+  // Clips, in place: the walk/run/bike files move the hips forward, which would
+  // carry the avatar out of view, so pin the hips' horizontal position.
+  const clips = {};
+  for (const [pose, f] of Object.entries(CLIPS)) {
+    const clip = (await files[f]).animations.find((a) => a.duration > 0 && a.tracks.length);
+    if (!clip) throw new Error(`no animation in ${f}`);
+    for (const track of clip.tracks) {
+      if (!/Hips\.position$/.test(track.name)) continue;
+      const v = track.values;
+      for (let i = 0; i < v.length; i += 3) { v[i] = v[0]; v[i + 2] = v[2]; }
+    }
+    clips[pose] = clip;
+  }
+
+  const bone = (suffix) => {
+    let found = null;
+    character.traverse((o) => { if (!found && o.isBone && o.name.endsWith(suffix)) found = o; });
+    return found;
+  };
+  const bones = {
+    hips: bone("Hips"), head: bone("Head"),
+    feet: [bone("LeftFoot"), bone("RightFoot")], hands: [bone("LeftHand"), bone("RightHand")],
+  };
+  if (!bones.hips || !bones.head) throw new Error("character has no Mixamo skeleton");
+
+  // ---- scene ----
+  const canvas = document.getElementById("avatar3d");
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setPixelRatio(window.devicePixelRatio || 1);
+  const scene = new THREE.Scene();
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8984, 2.2));
+  const sun = new THREE.DirectionalLight(0xffffff, 2.2);
+  sun.position.set(-150, 300, 200);
+  scene.add(sun);
+  const groundMat = new THREE.MeshBasicMaterial();
+  const ground = new THREE.Mesh(new THREE.CircleGeometry(85, 64), groundMat);
+  ground.rotation.x = -Math.PI / 2;
+  scene.add(ground);
+  scene.add(character);
+  const camera = new THREE.PerspectiveCamera(30, 1, 10, 5000);
+
+  // page colours (light/dark theme)
+  const bikeMat = new THREE.MeshStandardMaterial({ roughness: 0.6, transparent: true });
+  function applyTheme() {
+    groundMat.color.set(css("--border"));
+    bikeMat.color.set(css("--muted"));
+  }
+  applyTheme();
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applyTheme);
+
+  // ---- bike prop, fitted to the rider's pose in the bike clip ----
+  const bike = new THREE.Group();
+  {
+    const probe = new THREE.AnimationMixer(character);
+    probe.clipAction(clips.bike).play();
+    const feet = [], hands = [], hips = [];
+    const N = 24, w = new THREE.Vector3();
+    for (let i = 0; i < N; i++) {
+      probe.setTime(clips.bike.duration * i / N);
+      character.updateMatrixWorld(true);
+      for (const b of bones.feet) feet.push(b.getWorldPosition(w).clone());
+      for (const b of bones.hands) hands.push(b.getWorldPosition(w).clone());
+      hips.push(bones.hips.getWorldPosition(w).clone());
+    }
+    probe.stopAllAction();
+    probe.uncacheRoot(character);
+    const mean = (ps) => ps.reduce((a, p) => a.add(p), new THREE.Vector3()).divideScalar(ps.length).setX(0);
+    const crank = mean(feet);
+    const crankR = feet.reduce((a, p) => a + Math.hypot(p.y - crank.y, p.z - crank.z), 0) / feet.length;
+    const seat = mean(hips).add(new THREE.Vector3(0, -10, 0));
+    const bar = mean(hands);
+    const R = 32;
+    const rear = new THREE.Vector3(0, R, seat.z - 25);
+    const front = new THREE.Vector3(0, R, crank.z + 30);
+    const tube = (a, b, r = 2.2) => {
+      const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, a.distanceTo(b), 12), bikeMat);
+      m.position.copy(a).add(b).multiplyScalar(0.5);
+      m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
+      bike.add(m);
+    };
+    const ring = (c, r, t) => {
+      const m = new THREE.Mesh(new THREE.TorusGeometry(r, t, 10, 48), bikeMat);
+      m.position.copy(c);
+      m.rotation.y = Math.PI / 2;
+      bike.add(m);
+    };
+    ring(rear, R, 2); ring(front, R, 2); ring(crank, crankR, 0.8);
+    const below = crank.clone().setY(crank.y - crankR - 4);
+    tube(rear, seat); tube(seat, below); tube(rear, below); tube(below, crank);
+    tube(below, front); tube(front, bar.clone().setY(bar.y - 6)); tube(bar.clone().setX(-22), bar.clone().setX(22), 1.8);
+    tube(seat.clone().setZ(seat.z - 14), seat.clone().setZ(seat.z + 8), 5);
+  }
+  bike.visible = false;
+  scene.add(bike);
+
+  // ---- face photo hook: a round sprite that follows the head bone ----
+  const photoMat = new THREE.SpriteMaterial({ depthTest: false });
+  const photoSprite = new THREE.Sprite(photoMat);
+  photoSprite.scale.set(PHOTO_SIZE, PHOTO_SIZE, 1);
+  photoSprite.renderOrder = 1;
+  photoSprite.visible = false;
+  scene.add(photoSprite);
+  let photoShown = null;
+  function setPhoto(img) {
+    if (img === photoShown) return;
+    if (img && !(img.complete && img.naturalWidth)) return;   // not loaded yet: retry next frame
+    photoShown = img;
+    photoMat.map?.dispose();
+    photoMat.map = null;
+    if (img) {
+      const c = document.createElement("canvas");
+      c.width = c.height = 256;
+      const g = c.getContext("2d");
+      const side = Math.min(img.naturalWidth, img.naturalHeight);
+      g.beginPath(); g.arc(128, 128, 124, 0, 2 * Math.PI); g.clip();
+      g.drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, 256, 256);
+      g.lineWidth = 8; g.strokeStyle = css("--figure"); g.stroke();
+      photoMat.map = new THREE.CanvasTexture(c);
+      photoMat.map.colorSpace = THREE.SRGBColorSpace;
+    }
+    photoMat.needsUpdate = true;
+    photoSprite.visible = !!img;
+  }
+
+  // ---- animation ----
+  const mixer = new THREE.AnimationMixer(character);
+  const actions = {};
+  for (const [pose, clip] of Object.entries(clips)) actions[pose] = mixer.clipAction(clip);
+  let current = "standing";
+  actions.standing.play();
+
+  let viewW = 0, viewH = 0;
+  function fitView() {
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    if (!w || !h || (w === viewW && h === viewH)) return;
+    viewW = w; viewH = h;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    // keep a 250 cm wide x 200 cm tall box around the body in view
+    const t = Math.tan(camera.fov * Math.PI / 360);
+    const dist = Math.max(105 / t, 135 / (t * camera.aspect)) + 60;
+    const look = new THREE.Vector3(0, 80, 0);
+    camera.position.set(dist * Math.sin(VIEW_AZIMUTH), 45, dist * Math.cos(VIEW_AZIMUTH)).add(look);
+    camera.lookAt(look);
+    camera.updateProjectionMatrix();
+  }
+
+  const toCamera = new THREE.Vector3();
+  return {
+    // pose: standing | walking | running | bike | airbike (the stick figure's names)
+    update(pose, cadenceHz, bikeAlpha, dt, photo) {
+      if (!actions[pose]) pose = "standing";
+      if (pose !== current) {
+        const fade = CONFIG.blendMs / 1000;
+        actions[pose].reset().setEffectiveWeight(1).fadeIn(fade).play();
+        actions[current].fadeOut(fade);
+        current = pose;
+      }
+      const a = actions[current];
+      a.timeScale = pose === "standing" ? 1 : cadenceHz * a.getClip().duration / (CYCLES[pose] || 1);
+      mixer.update(dt);
+
+      bike.visible = bikeAlpha > 0.01;
+      bikeMat.opacity = bikeAlpha;
+
+      setPhoto(photo);
+      if (photoSprite.visible) {
+        character.updateMatrixWorld(true);
+        bones.head.getWorldPosition(photoSprite.position);
+        toCamera.subVectors(camera.position, photoSprite.position).normalize();
+        photoSprite.position.y += 9;                 // head bone sits at the base of the skull
+        photoSprite.position.addScaledVector(toCamera, 14);
+      }
+
+      fitView();
+      renderer.render(scene, camera);
+    },
+  };
+}
+
+initAvatar3d().then(
+  (api) => window.avatar3dReady(api),
+  (err) => {
+    console.warn("3D avatar unavailable, using the stick figure:", err);
+    window.avatar3dFailed(err.message || String(err));
+  },
+);
 </script>
 </body>
 </html>

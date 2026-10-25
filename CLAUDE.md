@@ -129,6 +129,21 @@ For display, report cadence as:
   Test mode: buttons for the true activity; each prediction arriving while one is
   selected is scored right/wrong for each model, shown as accuracy on the cards.
   Counts live in `player.test` (reset on Switch player).
+- **3D avatar (2026-10-24):** a `<script type="module">` at the end of
+  dashboard.html loads three.js 0.170.0 (import map, jsDelivr) and the Mixamo
+  FBX files in `laptop/assets/`. Those files are gitignored because Mixamo files
+  can't be redistributed and the repo is public; `laptop/assets/README.md` lists
+  them. All files share one skeleton. `Standing Idle.fbx` supplies the mesh.
+  Upright biking uses "Flying Bicycle Kick" (seated, hands on bars), with a bike
+  prop fitted to the clip's foot/hand/hip positions. Air-biking uses
+  "Bicycle Crunch". Each clip loops exactly one stride or pedal turn (measured),
+  so timeScale = smoothed cadence_hz x clip duration. Hips x/z are pinned
+  (in place). The pose names are the stick figure's (`poseName()`), and the
+  classic script calls `avatar3d.update(...)` instead of `drawAvatar` when 3D is
+  on. Fallback to the stick figure happens on file://, no three.js, or missing
+  FBX, and the reason shows in the panel. The page must be served:
+  `python laptop/serve.py` (localhost:8000, 127.0.0.1 only). Face photo:
+  `HEAD_PHOTO` / `player.photo` becomes a round sprite placed at the head bone.
 - The sketch's per-sample CSV on Monitor is off (`PRINT_CSV = false`) to keep the
   router link light; `#` status lines still print.
 - Optional later: Whoop heart rate over BLE, shown on the dashboard only. It is
@@ -227,6 +242,7 @@ python laptop/compare.py    # -> figures/model_comparison.png
 - `laptop/run_board_app.py` runs the real `main.py` on the laptop with a stand-in
   `arduino.app_utils`, fed from an MQTT raw stream (default: simulator on
   `ME193/ceci/gait/test/sim/raw`), publishing under `ME193/ceci/gait/test/`
+  (dashboard: `python laptop/serve.py --query "prefix=ME193/ceci/gait/test"`)
   (main.py reads `GAIT_TOPIC_PREFIX`, unset on the board). LED calls print as ASCII.
 - **Board state 2026-10-24 ~00:20 UTC:** a deploy was interrupted (by mistake, while
   the board briefly came online). The board has the Phase 6 Python side and models

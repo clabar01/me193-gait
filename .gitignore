@@ -227,3 +227,6 @@ data/sim/
 __pycache__/
 .DS_Store
 *.log
+# Mixamo FBX files for the dashboard's 3D avatar: Adobe's terms don't allow
+# redistributing them as files, and this repo is public. See laptop/assets/README.md.
+laptop/assets/*.fbx

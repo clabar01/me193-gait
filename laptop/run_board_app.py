@@ -11,7 +11,7 @@ unoq_app/sketch/sketch.ino.
 Usage (three terminals):
     python laptop/simulator.py --topic ME193/ceci/gait/test/sim/raw --random
     python laptop/run_board_app.py
-    open "laptop/dashboard.html?prefix=ME193/ceci/gait/test"
+    python laptop/serve.py --query "prefix=ME193/ceci/gait/test"
 
     python laptop/run_board_app.py --icons      # just print the LED icons
 """

@@ -56,6 +56,7 @@ me193-gait/
 │   └── python/      Linux-side Python: windowing, both classifiers, LED matrix, MQTT
 ├── tools/           i2c_scanner/: standalone sketch for checking the IMU wiring
 ├── laptop/          data logger, model training and web dashboard scripts
+│   └── assets/      Mixamo FBX files for the dashboard's 3D avatar (not in git, see its README)
 ├── data/
 │   ├── raw/         labeled CSV recordings from the real sensor (the only data used for training)
 │   └── sim/         recordings of simulator data, made with logger.py --sim (never used for training)
@@ -107,7 +108,7 @@ resolve. To try the board app on the laptop without the board:
 ```bash
 python laptop/simulator.py --topic ME193/ceci/gait/test/sim/raw --random
 python laptop/run_board_app.py
-open "laptop/dashboard.html?prefix=ME193/ceci/gait/test"
+python laptop/serve.py --query "prefix=ME193/ceci/gait/test"
 ```
 
 The manual steps behind the script:
@@ -181,15 +182,38 @@ python laptop/plot_raw.py data/raw/<file>.csv --out figures/x.png
 
 ### Live dashboard
 
-Open `laptop/dashboard.html` in a browser (double-click it); it needs internet. Enter
-a name and press Start. Press `F` for fullscreen. The page only listens to MQTT and
-never sends anything, so the name stays on that screen.
+Start it with a local web server; it needs internet:
+
+```bash
+python laptop/serve.py        # opens http://localhost:8000/dashboard.html
+```
+
+(`python -m http.server 8000 --directory laptop --bind 127.0.0.1` does the same, and
+then you open that address yourself.) Enter a name and press Start. Press `F` for
+fullscreen. The page only listens to MQTT and never sends anything, so the name stays
+on that screen.
+
+**3D avatar.** The avatar is a 3D character (three.js) animated from Mixamo files in
+`laptop/assets/`. It cross-fades between standing, walking, running, biking and
+air-biking (when gravity shows you're on your back) following Model 2. Its playback
+speed follows the measured cadence, smoothed. The files aren't in git; to get them,
+see `laptop/assets/README.md`. The button in the avatar panel switches to the 2D
+stick figure and back. The stick figure is also used automatically when the 3D
+can't load. That happens if `dashboard.html` is opened by double-clicking, since
+browsers block a local file from loading other local files. It also happens with no
+internet, or when the FBX files are missing. The panel then says why. Add
+`?avatar=stick` to the address to start with the stick figure. To put a face on the
+head, set `HEAD_PHOTO` in `dashboard.html`. The photo goes on the stick figure's head
+and as a round badge that follows the 3D head.
 
 To try it without the board, run the simulator with predictions in another terminal:
 
 ```bash
 python laptop/simulator.py --random --pred
 ```
+
+With the board app running on the laptop instead (see Deploying), use the test topics:
+`python laptop/serve.py --query "prefix=ME193/ceci/gait/test"`.
 
 **Test mode.** Pick the true activity with the buttons under the header. While
 one is selected, every prediction is scored right or wrong, and each model card
