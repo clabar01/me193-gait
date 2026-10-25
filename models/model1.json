@@ -1,0 +1,32 @@
+{
+  "feature": "peak_az",
+  "classes": [
+    "standing",
+    "biking",
+    "walking"
+  ],
+  "thresholds": [
+    0.4828,
+    1.5581
+  ],
+  "trained_on": {
+    "subjects": [
+      "ceci"
+    ],
+    "windows": 237,
+    "classes": [
+      "standing",
+      "walking",
+      "biking"
+    ]
+  },
+  "evaluation": {
+    "method": "time split within each recording (first 70% train, rest test; only 1 subject: ceci)",
+    "held_out_accuracy": {
+      "peak_ax": 0.7222,
+      "peak_ay": 0.6806,
+      "peak_az": 0.8056
+    }
+  },
+  "created": "2026-10-24"
+}

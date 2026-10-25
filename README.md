@@ -173,6 +173,25 @@ To try it without the board, run the simulator with predictions in another termi
 python laptop/simulator.py --random --pred
 ```
 
+**Test mode.** Pick the true activity with the buttons under the header. While
+one is selected, every prediction is scored right or wrong, and each model card
+shows its running accuracy. Switch player resets the counts.
+
+### Features and models
+
+Rerun these whenever `data/raw/` changes:
+
+```bash
+python laptop/features.py   # windows + features -> data/windows.csv
+python laptop/model1.py     # Model 1 (peak accel thresholds) -> models/model1.json
+python laptop/model2.py     # Model 2 (decision tree) -> models/model2_rules.py
+python laptop/compare.py    # side-by-side confusion matrices -> figures/model_comparison.png
+```
+
+Both models are tested on the same held-out windows: leave-one-subject-out once
+there are two or more subjects, otherwise a time split inside each recording.
+Figures go to `figures/`.
+
 ### Testing without the hardware
 
 `laptop/simulator.py` publishes **fake** IMU data in the same MQTT format as the Uno Q.

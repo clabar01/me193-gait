@@ -125,6 +125,9 @@ For display, report cadence as:
   "Switch player" returns to the name screen and replaces the page's `player`
   object (name, face photo); put any per-player stats in that object so they
   reset with it. The MQTT connection stays open across players (no reconnect).
+  Test mode: buttons for the true activity; each prediction arriving while one is
+  selected is scored right/wrong for each model, shown as accuracy on the cards.
+  Counts live in `player.test` (reset on Switch player).
 - The sketch's per-sample CSV on Monitor is off (`PRINT_CSV = false`) to keep the
   router link light; `#` status lines still print.
 - Optional later: Whoop heart rate over BLE, shown on the dashboard only. It is
@@ -161,6 +164,34 @@ For display, report cadence as:
 - The board's Python container doesn't have numpy yet: add it to
   `unoq_app/python/requirements.txt` when features.py is first used live.
 - Tests: `python laptop/test_features.py`.
+- It also holds `window_starts()` (2 s windows, 1 s step, skipping gaps in t),
+  `window_features()` (all Model 1 + Model 2 features, cadence from signed `gy`),
+  `merge_label()` (air-biking -> biking) and `model1_predict()` (applies
+  models/model1.json). Laptop scripts load it by path via `laptop/shared.py`
+  (`shared_features()`), because `laptop/features.py` has the same module name.
+
+## Phase 4/5 pipeline (rerun whenever data/raw/ changes)
+
+```bash
+python laptop/features.py   # data/raw/*.csv -> data/windows.csv
+python laptop/model1.py     # -> models/model1.json, figures/model1_*.png
+python laptop/model2.py     # -> models/model2_rules.py, figures/model2_*.png
+python laptop/compare.py    # -> figures/model_comparison.png
+```
+
+- Evaluation (`laptop/evaluation.py`, shared by both models): leave-one-subject-out
+  when there are 2+ subjects; with 1 subject, a time split inside each recording
+  (first 70% train, last 30% test, boundary window dropped). Both models use the
+  same splits; held-out predictions go to `models/eval_model{1,2}.csv`.
+- Everything adapts to whichever classes are present.
+- Model 1 picks the axis (peak_ax/ay/az) with the best held-out accuracy; classes
+  are ordered by their median peak on that axis and thresholds are an exact
+  accuracy-maximising search. Model 2 tries depths 2-5 (ties -> shallower),
+  `min_samples_leaf=3`, and is exported as plain if/else (branches whose leaves
+  all agree are collapsed); the export is checked against sklearn on every window.
+- Known fragility (2026-10-24, 1 subject): Model 2's root split was
+  `amag_mean <= 0.961` (standing vs walking), which mostly reflects this sensor's
+  ~0.95 g resting magnitude and may not hold for other people or sensors.
 
 ## Ground rules
 
