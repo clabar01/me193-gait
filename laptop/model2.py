@@ -1,5 +1,12 @@
 """Phase 5, Model 2: a shallow decision tree on all IMU features.
 
+Calibration-sensitive features are left out (CALIBRATION_SENSITIVE): absolute
+accel levels and per-axis means move with a sensor's offset/scale and gyro
+bias, so a split on them (e.g. amag_mean <= 0.961, which only reflected this
+sensor reading ~0.95 g at rest) would not carry over to other people or
+boards. Model 2 uses variability (std, amag_std, gyro magnitude/energy),
+cadence, peaks and the gravity *direction* (a unit vector) instead.
+
 Depths 2-5 are compared on the same held-out splits as Model 1 (see
 evaluation.py); the shallowest depth with the best held-out accuracy is refit
 on all windows and exported as plain if/else Python (no sklearn on the board).
@@ -29,13 +36,18 @@ from sklearn.tree import DecisionTreeClassifier, plot_tree
 
 import plotting
 from evaluation import classes_present, splits
-from shared import REPO, shared_features
+from shared import REPO, copy_to_app, shared_features
 
 F = shared_features()
 DEPTHS = (2, 3, 4, 5)
 MIN_SAMPLES_LEAF = 3
 RULES = REPO / "models" / "model2_rules.py"
 META_COLUMNS = ("subject", "recording", "activity", "label", "t_start", "t_end")
+CALIBRATION_SENSITIVE = (
+    "amag_mean", "amag_min", "amag_max",       # absolute |a| levels (scale/offset)
+    "mean_ax", "mean_ay", "mean_az",           # per-axis offsets (direction is in grav_*)
+    "mean_gx", "mean_gy", "mean_gz",           # gyro bias
+)
 
 
 def make_tree(depth):
@@ -87,7 +99,7 @@ def load_rules():
 
 def main():
     windows = pd.read_csv(REPO / "data" / "windows.csv")
-    features = [c for c in windows.columns if c not in META_COLUMNS]
+    features = [c for c in windows.columns if c not in META_COLUMNS and c not in CALIBRATION_SENSITIVE]
     classes = classes_present(windows, F.CLASSES)
     method, folds = splits(windows)
     X, y = windows[features], windows["label"]
@@ -116,7 +128,9 @@ def main():
     mismatch = int((exported != clf.predict(X)).sum())
     if mismatch:
         raise SystemExit(f"exported rules disagree with sklearn on {mismatch} windows")
-    print(f"exported {RULES.relative_to(REPO)} (matches sklearn on all {len(windows)} windows)")
+    copy_to_app(RULES)
+    print(f"exported {RULES.relative_to(REPO)} (matches sklearn on all {len(windows)} windows; "
+          f"copied to unoq_app/python/models/)")
 
     preds = held_out[best][0]
     tested = preds.dropna().index
