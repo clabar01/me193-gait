@@ -11,13 +11,18 @@
 //   g*  deg/s, body frame
 // PRINT_CSV also prints every sample to Monitor as "t,ax,ay,az,gx,gy,gz".
 //
+// LED matrix: Python calls Bridge.call("show_activity", label) with Model 2's
+// label and the matching 13x8 icon is drawn (see LED MATRIX ICONS).
+//
 // Libraries: Arduino_RouterBridge, Adafruit MPU6050 (+ Adafruit Unified
-// Sensor and Adafruit BusIO, which it depends on).
+// Sensor and Adafruit BusIO, which it depends on). Arduino_LED_Matrix comes
+// with the board package.
 
 #include <Arduino_RouterBridge.h>
 #include <Wire.h>
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
+#include <Arduino_LED_Matrix.h>
 
 const uint8_t MPU_ADDR = 0x68;
 const uint32_t I2C_HZ = 100000;
@@ -54,6 +59,67 @@ const float GYRO_BIAS_DPS[3] = {1.11f, 1.46f, -0.07f};
 const uint8_t BODY_FROM[3] = {0, 1, 2};
 const int8_t  BODY_SIGN[3] = {-1, -1, +1};
 // =====================================================================================
+
+// ===================== LED MATRIX ICONS (13 x 8) =====================
+// One string per row, '#' = LED on. Edit freely, but keep 8 rows of exactly
+// 13 characters. laptop/run_board_app.py prints these as ASCII.
+const char *const ICON_STANDING[8] = {
+  ".....###.....",
+  ".....###.....",
+  "......#......",
+  "....#####....",
+  "......#......",
+  "......#......",
+  ".....#.#.....",
+  ".....#.#.....",
+};
+const char *const ICON_WALKING[8] = {
+  "......##.....",
+  "......##.....",
+  "......#......",
+  ".....###.....",
+  "....#.#.#....",
+  "......#......",
+  ".....#.#.....",
+  "....#...#....",
+};
+const char *const ICON_RUNNING[8] = {
+  "........##...",
+  "........##...",
+  ".......#.....",
+  "##...###.#...",
+  ".......#..#..",
+  "##....#......",
+  ".....#.##....",
+  "##..#.....#..",
+};
+const char *const ICON_BIKING[8] = {
+  ".........##..",
+  "..###....#...",
+  "....######...",
+  "....#....#...",
+  ".##.#.....##.",
+  "#..###...#..#",
+  "#..#.....#..#",
+  ".##.......##.",
+};
+
+struct Icon {
+  const char *label;
+  const char *const *rows;
+};
+const Icon ICONS[] = {
+  {"standing", ICON_STANDING},
+  {"walking", ICON_WALKING},
+  {"running", ICON_RUNNING},
+  {"biking", ICON_BIKING},
+};
+const int N_ICONS = sizeof(ICONS) / sizeof(ICONS[0]);
+// =====================================================================
+
+Arduino_LED_Matrix matrix;
+volatile int requestedIcon = -1;   // set by show_activity (Bridge thread); -1 = blank
+int shownIcon = -2;                // what loop() last drew
 
 Adafruit_MPU6050 mpu;
 bool sensorOk = false;
@@ -141,9 +207,36 @@ void status(const char *msg) {
   Bridge.notify("imu_status", line);
 }
 
+// Python calls this with Model 2's label. Bridge providers run on their own
+// thread, so this only records the request; loop() does the drawing.
+void show_activity(String label) {
+  int idx = -1;
+  for (int i = 0; i < N_ICONS; i++) {
+    if (label == ICONS[i].label) {
+      idx = i;
+    }
+  }
+  requestedIcon = idx;
+}
+
+void drawIcon(int idx) {
+  uint8_t frame[8][13] = {};
+  if (idx >= 0) {
+    for (int r = 0; r < 8; r++) {
+      for (int c = 0; c < 13; c++) {
+        frame[r][c] = ICONS[idx].rows[r][c] == '#';
+      }
+    }
+  }
+  matrix.renderBitmap(frame, 8, 13);
+}
+
 void setup() {
   Bridge.begin();
   Monitor.begin();
+  matrix.begin();
+  matrix.clear();
+  Bridge.provide("show_activity", show_activity);
 
   sensorOk = initSensor();
   lastReinitMs = millis();
@@ -156,6 +249,12 @@ void setup() {
 }
 
 void loop() {
+  int wanted = requestedIcon;
+  if (wanted != shownIcon) {
+    drawIcon(wanted);
+    shownIcon = wanted;
+  }
+
   // Fixed-rate scheduler on micros(): no delay(), and no drift because the
   // next deadline is always the previous one + 20 ms. I2C reads can't run
   // inside a timer interrupt, so the deadline is polled here.

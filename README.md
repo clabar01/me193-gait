@@ -94,6 +94,24 @@ The exact commands will be added here as each script is written.
 
 ### Deploying to the Uno Q
 
+After retraining (or any change to `unoq_app/`), from the repo root:
+
+```bash
+laptop/deploy_board.sh             # Python side + models
+laptop/deploy_board.sh --sketch    # also the sketch; power-cycle the board afterwards
+```
+
+`BOARD=arduino@<ip> laptop/deploy_board.sh` if the board's `.local` name doesn't
+resolve. To try the board app on the laptop without the board:
+
+```bash
+python laptop/simulator.py --topic ME193/ceci/gait/test/sim/raw --random
+python laptop/run_board_app.py
+open "laptop/dashboard.html?prefix=ME193/ceci/gait/test"
+```
+
+The manual steps behind the script:
+
 `unoq_app/` is the complete App Lab app. To deploy it over SSH:
 
 ```bash

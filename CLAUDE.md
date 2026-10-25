@@ -110,10 +110,11 @@ For display, report cadence as:
   gaps in 55 s; board→laptop lag median ~113 ms (p90 ~183 ms), about the same as
   the laptop's own HiveMQ round trip, so the public broker dominates.
 - **Prediction format (defined 2026-10-23; the board must publish exactly this):**
-  topic `ME193/ceci/gait/pred`, one message per 1 s window step, JSON
+  topic `ME193/ceci/gait/pred`, one message every 0.5 s (2 s window), JSON
   `{"t": <ms, t of the window's last sample>, "model1": <label>, "model2": <label>,
   "cadence_hz": <stride frequency, 0 when standing>}`. Labels are exactly
   `standing`, `walking`, `running`, `biking` (air-biking is reported as `biking`).
+  `model2` is the majority vote of Model 2's last 3 predictions; `model1` is raw.
   `laptop/simulator.py --pred` publishes fake predictions in this format.
 - **Dashboard:** `laptop/dashboard.html`, a single file, MQTT over WebSockets
   (`wss://broker.hivemq.com:8884/mqtt`, mqtt.js from jsDelivr). It only subscribes,
@@ -189,9 +190,55 @@ python laptop/compare.py    # -> figures/model_comparison.png
   accuracy-maximising search. Model 2 tries depths 2-5 (ties -> shallower),
   `min_samples_leaf=3`, and is exported as plain if/else (branches whose leaves
   all agree are collapsed); the export is checked against sklearn on every window.
-- Known fragility (2026-10-24, 1 subject): Model 2's root split was
-  `amag_mean <= 0.961` (standing vs walking), which mostly reflects this sensor's
-  ~0.95 g resting magnitude and may not hold for other people or sensors.
+- **Model 2 leaves out calibration-sensitive features** (`CALIBRATION_SENSITIVE`
+  in laptop/model2.py): `amag_mean/min/max`, `mean_ax/ay/az`, `mean_gx/gy/gz`.
+  With them, the root split was `amag_mean <= 0.961`, which only reflected this
+  sensor reading ~0.95 g at rest and would not carry over to other people or
+  sensors. Without them (2026-10-24, 1 subject, same splits) the tree is
+  `gyro_energy <= 1752 -> standing` (is the thigh rotating?), then
+  `grav_x <= 0.966 -> biking else walking` (is the thigh vertical?), both physical
+  and calibration-robust, and held-out accuracy went from 97% to 100% (72 windows).
+  Keep Model 2 on variability, cadence, peaks and gravity *direction*. Watch the
+  `grav_x` split once running/upright biking exist: walking sits near 0.99.
+
+## Phase 6: live classification on the board
+
+- `unoq_app/python/live.py` (`LiveClassifier`): rolling buffer of the 2 s window
+  plus one sample each side (so despike() sees both neighbours), every 25 samples
+  (0.5 s) -> despike -> `window_features` -> Model 1 + Model 2 (vote of 3) ->
+  prediction dict. Pure numpy, no Arduino imports. Windows with a gap in t are
+  skipped; t going backwards resets it.
+- `main.py`: the Bridge handler only calls `live.add()` (cheap); snapshots go to a
+  worker thread that classifies, publishes to the pred topic and calls
+  `Bridge.call("show_activity", label)` on change (and every 5 s). If numpy or the
+  models fail to load, it logs `live classification OFF` and keeps forwarding raw
+  data (the logger must never be blocked by Phase 6). Status messages now include
+  `live` and `model2`.
+- Sketch: `show_activity(String)` (Bridge provider) only records the request;
+  `loop()` draws the 13x8 icon with `Arduino_LED_Matrix` (bundled with the board
+  package) via `renderBitmap`. Icons are `#`/`.` text rows in the sketch
+  (`ICON_STANDING/WALKING/RUNNING/BIKING`); `python laptop/run_board_app.py --icons`
+  prints them.
+- Models on the board load from `unoq_app/python/models/`. `laptop/model1.py` and
+  `laptop/model2.py` write `models/` AND copy into that folder, so after retraining:
+  `laptop/deploy_board.sh` (Python + models) or `laptop/deploy_board.sh --sketch`
+  (also reflashes the sketch -> power-cycle). It refuses to deploy if the app's
+  model copies are stale. `BOARD=arduino@<ip>` if the .local name fails.
+- `laptop/run_board_app.py` runs the real `main.py` on the laptop with a stand-in
+  `arduino.app_utils`, fed from an MQTT raw stream (default: simulator on
+  `ME193/ceci/gait/test/sim/raw`), publishing under `ME193/ceci/gait/test/`
+  (main.py reads `GAIT_TOPIC_PREFIX`, unset on the board). LED calls print as ASCII.
+- **Board state 2026-10-24 ~00:20 UTC:** a deploy was interrupted (by mistake, while
+  the board briefly came online). The board has the Phase 6 Python side and models
+  in `~/ArduinoApps/me193_gait/python/` but still the OLD sketch (no
+  `show_activity`, so LED calls log a warning), and the app was left STOPPED; it is
+  the default app, so it starts at the next boot and will first install numpy (not
+  yet verified on the board). That copy of main.py imports live.py at the top, so
+  if numpy fails it won't forward raw data either. Next step: run
+  `laptop/deploy_board.sh --sketch` (ships the fixed main.py + new sketch), then
+  power-cycle, then check the logs (`arduino-app-cli app logs`) for
+  `models loaded` and the pred topic for messages. The new sketch has passed only a
+  host syntax check, not a board compile.
 
 ## Ground rules
 

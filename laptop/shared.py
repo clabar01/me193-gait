@@ -5,11 +5,13 @@ It is imported by path under the name "shared_features" because a plain
 """
 
 import importlib.util
+import shutil
 import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 SHARED_PATH = REPO / "unoq_app" / "python" / "features.py"
+APP_MODELS = REPO / "unoq_app" / "python" / "models"   # what the board app loads
 
 
 def shared_features():
@@ -19,3 +21,11 @@ def shared_features():
         sys.modules["shared_features"] = module
         spec.loader.exec_module(module)
     return sys.modules["shared_features"]
+
+
+def copy_to_app(path):
+    """Copy a trained model file into the board app (unoq_app/python/models/),
+    so laptop/deploy_board.sh ships the newest models."""
+    APP_MODELS.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(path, APP_MODELS / Path(path).name)
+    return APP_MODELS / Path(path).name

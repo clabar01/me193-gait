@@ -1,4 +1,4 @@
-"""me193_gait: forward IMU samples from the sketch to MQTT.
+"""me193_gait: forward IMU samples from the sketch to MQTT, and classify them live.
 
 The sketch reads the MPU-6050 at 50 Hz and calls Bridge.notify("imu_sample",
 t, ax, ay, az, gx, gy, gz) for every sample. This side batches them and
@@ -15,16 +15,26 @@ queue. While MQTT is down (e.g. WiFi drop) up to QUEUE_SECONDS of batches are
 kept and sent on reconnect; older ones are dropped, which shows up as a gap in
 t. paho reconnects by itself (connect_async + loop_start).
 
+Live classification (live.py): every 0.5 s the last 2 s of samples are
+despiked and turned into features (features.py, shared with training), then
+Model 1 (models/model1.json) and Model 2 (models/model2_rules.py, majority vote
+over its last 3 predictions) run on a worker thread. Each result goes to
+PRED_TOPIC, and Model 2's label goes to the sketch (Bridge.call
+"show_activity") for the LED matrix icon. If the models can't be loaded the
+app logs why and keeps forwarding raw samples.
+
 Every STATUS_PERIOD_S this also publishes STATUS_TOPIC:
     {"wall": <board Unix time>, "t": <last sample t>, "rate_hz": ...,
      "queued": <batches waiting>, "dropped": ..., "mqtt": true/false,
-     "mcu": <last sketch status line>}
+     "mcu": <last sketch status line>, "live": true/false, "model2": <last label>}
 "wall" and "t" let the laptop estimate end-to-end lag.
 """
 import collections
 import json
+import os
 import threading
 import time
+from queue import Full, Queue
 
 import paho.mqtt.client as mqtt
 
@@ -33,8 +43,13 @@ from arduino.app_utils import App, Bridge, Logger
 logger = Logger("me193_gait")
 
 BROKER = ("broker.hivemq.com", 1883)
-RAW_TOPIC = "ME193/ceci/gait/raw"
-STATUS_TOPIC = "ME193/ceci/gait/status"
+# GAIT_TOPIC_PREFIX is only set when laptop/run_board_app.py runs this file on
+# the laptop for testing; on the board the topics are the real ones.
+TOPIC_PREFIX = os.environ.get("GAIT_TOPIC_PREFIX", "ME193/ceci/gait")
+RAW_TOPIC = f"{TOPIC_PREFIX}/raw"
+STATUS_TOPIC = f"{TOPIC_PREFIX}/status"
+PRED_TOPIC = f"{TOPIC_PREFIX}/pred"
+LED_REFRESH_S = 5.0         # re-send the icon this often in case the sketch restarted
 
 FS = 50
 BATCH = 5                   # samples per message -> 10 messages/s
@@ -51,6 +66,19 @@ dropped = 0                 # batches dropped because the queue was full
 last_t = None
 last_mcu_status = ""
 mqtt_up = False
+
+try:
+    # imported here, not at the top: if numpy or the model files are missing,
+    # the app must still forward raw samples for the logger
+    from live import LiveClassifier
+    live = LiveClassifier()
+    logger.info(f"models loaded: model1 on {live.model1['feature']} "
+                f"({', '.join(live.model1['classes'])}), model2 classes {live.model2.CLASSES}")
+except Exception as e:      # missing/broken model files: keep forwarding raw data
+    live = None
+    logger.error(f"live classification OFF, could not load models: {e}")
+work = Queue(maxsize=4)   # buffer snapshots waiting to be classified
+last_label = None
 
 
 def on_connect(client, userdata, flags, reason_code, properties):
@@ -85,12 +113,18 @@ def imu_sample(t, ax, ay, az, gx, gy, gz):
         received += 1
         last_t = sample["t"]
         batch.append(sample)
+        snapshot = live.add(sample) if live else None
         if len(batch) == BATCH:
             if len(queue) == queue.maxlen:
                 dropped += 1    # deque drops the oldest batch
             queue.append(json.dumps(batch))
             batch.clear()
             queue_ready.set()
+    if snapshot is not None:
+        try:
+            work.put_nowait(snapshot)
+        except Full:        # classifier is behind: skip this snapshot
+            pass
 
 
 def imu_status(text):
@@ -117,6 +151,30 @@ def publisher():
                     queue.popleft()
 
 
+def classifier_loop():
+    """Classify buffer snapshots, publish predictions, drive the LED icon."""
+    global last_label
+    last_led = 0.0
+    while True:
+        result = live.classify(work.get())
+        if result is None:          # window had a gap in t
+            continue
+        pred, _ = result
+        if mqtt_up:
+            client.publish(PRED_TOPIC, json.dumps(pred), qos=0)
+        now = time.monotonic()
+        if pred["model2"] != last_label or now - last_led >= LED_REFRESH_S:
+            try:
+                Bridge.call("show_activity", pred["model2"])
+                last_led = now
+            except Exception as e:
+                logger.warning(f"show_activity failed: {e}")
+            if pred["model2"] != last_label:
+                logger.info(f"model2: {pred['model2']} (model1: {pred['model1']}, "
+                            f"cadence {pred['cadence_hz']} Hz)")
+        last_label = pred["model2"]
+
+
 def status_loop():
     """App loop: log and publish a status line every STATUS_PERIOD_S."""
     global received, dropped
@@ -128,7 +186,7 @@ def status_loop():
         dropped = 0
     status = {"wall": round(time.time(), 3), "t": last_t, "rate_hz": rate,
               "queued": n_queued, "dropped": n_dropped, "mqtt": mqtt_up,
-              "mcu": last_mcu_status}
+              "mcu": last_mcu_status, "live": live is not None, "model2": last_label}
     logger.info(f"rate {rate:.1f} Hz, queued {n_queued}, dropped {n_dropped}, "
                 f"MQTT {'up' if mqtt_up else 'DOWN'}")
     if mqtt_up:
@@ -138,5 +196,7 @@ def status_loop():
 Bridge.provide("imu_sample", imu_sample)
 Bridge.provide("imu_status", imu_status)
 threading.Thread(target=publisher, daemon=True).start()
+if live:
+    threading.Thread(target=classifier_loop, daemon=True).start()
 
 App.run(user_loop=status_loop)

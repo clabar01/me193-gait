@@ -18,7 +18,7 @@ edges still have both neighbours. Then:
         label1 = model1_predict(feats, model1)          # models/model1.json
         label2 = model2_rules.predict(feats)            # models/model2_rules.py
 
-Needs numpy (add it to python/requirements.txt before using this on the board).
+live.py does exactly this on the board. Needs numpy (in python/requirements.txt).
 """
 
 import numpy as np

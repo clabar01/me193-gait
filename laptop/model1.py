@@ -27,7 +27,7 @@ import pandas as pd
 
 import plotting
 from evaluation import classes_present, splits
-from shared import REPO, shared_features
+from shared import REPO, copy_to_app, shared_features
 
 F = shared_features()
 MAX_CANDIDATES = 400
@@ -102,6 +102,7 @@ def main():
     }
     (REPO / "models").mkdir(exist_ok=True)
     (REPO / "models" / "model1.json").write_text(json.dumps(model, indent=2) + "\n")
+    copy_to_app(REPO / "models" / "model1.json")
     print(f"\nchosen: {best}; thresholds on all data: "
           + " | ".join(f"{c} <= {t:.2f}" for c, t in zip(final["classes"], final["thresholds"]))
           + f" | else {final['classes'][-1]}")
@@ -116,7 +117,7 @@ def main():
     plotting.plot_confusion(ax, cm, classes, f"Model 1 ({best}), held out: {held_out[best][1]:.0%}")
     fig.tight_layout()
     fig.savefig(REPO / "figures" / "model1_confusion.png", dpi=150)
-    print("saved models/model1.json, models/eval_model1.csv, "
+    print("saved models/model1.json (+ copy in unoq_app/python/models/), models/eval_model1.csv, "
           "figures/model1_thresholds.png, figures/model1_confusion.png")
 
 
