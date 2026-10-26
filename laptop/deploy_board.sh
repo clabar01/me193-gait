@@ -2,9 +2,11 @@
 # Deploy the board app (unoq_app/) to the Uno Q and restart it.
 #
 #   laptop/deploy_board.sh             # Python side + models (after retraining)
-#   laptop/deploy_board.sh --sketch    # also the sketch (reflashes the MCU:
-#                                      #   power-cycle the board afterwards, see CLAUDE.md)
-#   BOARD=arduino@192.168.1.173 laptop/deploy_board.sh   # if AirFour.local doesn't resolve
+#   laptop/deploy_board.sh --sketch    # also copies the sketch
+#   BOARD=arduino@10.247.137.47 laptop/deploy_board.sh   # if AirFour.local doesn't resolve
+#
+# Either way 'app start' recompiles and reflashes the MCU, so power-cycle the
+# board afterwards (see CLAUDE.md).
 #
 # model1.py and model2.py already copy their outputs into
 # unoq_app/python/models/; this checks that copy is current before deploying.
@@ -13,7 +15,7 @@ cd "$(dirname "$0")/.."
 
 case "${1:-}" in
   "" | --sketch) ;;
-  -h | --help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  -h | --help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
   *) echo "unknown option: $1 (use --sketch or --help)" >&2; exit 2 ;;
 esac
 
@@ -36,6 +38,6 @@ echo "copying ${files[*]} to $BOARD:ArduinoApps/me193_gait/"
 scp -q -r "${files[@]}" "$BOARD:ArduinoApps/me193_gait/"
 echo "restarting me193_gait (stop + start; 'app restart' can fail with 'app is running')"
 ssh "$BOARD" "timeout -k 5 120 arduino-app-cli app stop $APP; timeout -k 5 420 arduino-app-cli app start $APP"
-if [[ "${1:-}" == "--sketch" ]]; then
-  echo "sketch reflashed: power-cycle the board before trusting it"
-fi
+# 'app start' reflashes the sketch even when it hasn't changed (seen 2026-10-26)
+echo
+echo ">>> The MCU was reflashed: POWER-CYCLE THE BOARD before trusting it (unplug ~5 s, plug back in)."

@@ -99,8 +99,11 @@ After retraining (or any change to `unoq_app/`), from the repo root:
 
 ```bash
 laptop/deploy_board.sh             # Python side + models
-laptop/deploy_board.sh --sketch    # also the sketch; power-cycle the board afterwards
+laptop/deploy_board.sh --sketch    # also the sketch
 ```
+
+Power-cycle the board after either one: starting the app always reflashes the
+microcontroller.
 
 `BOARD=arduino@<ip> laptop/deploy_board.sh` if the board's `.local` name doesn't
 resolve. To try the board app on the laptop without the board:

@@ -251,7 +251,9 @@ python laptop/compare.py    # -> figures/model_comparison.png
 - Models on the board load from `unoq_app/python/models/`. `laptop/model1.py` and
   `laptop/model2.py` write `models/` AND copy into that folder, so after retraining:
   `laptop/deploy_board.sh` (Python + models) or `laptop/deploy_board.sh --sketch`
-  (also reflashes the sketch -> power-cycle). It refuses to deploy if the app's
+  (also copies the sketch). Both reflash the MCU: `app start` recompiles and
+  flashes the sketch even when it hasn't changed (seen 2026-10-26), so always
+  power-cycle after a deploy; the script says so. It refuses to deploy if the app's
   model copies are stale. `BOARD=arduino@<ip>` if the .local name fails.
 - `laptop/run_board_app.py` runs the real `main.py` on the laptop with a stand-in
   `arduino.app_utils`, fed from an MQTT raw stream (default: simulator on
