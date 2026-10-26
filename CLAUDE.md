@@ -129,21 +129,29 @@ For display, report cadence as:
   Test mode: buttons for the true activity; each prediction arriving while one is
   selected is scored right/wrong for each model, shown as accuracy on the cards.
   Counts live in `player.test` (reset on Switch player).
-- **3D avatar (2026-10-24):** a `<script type="module">` at the end of
-  dashboard.html loads three.js 0.170.0 (import map, jsDelivr) and the Mixamo
-  FBX files in `laptop/assets/`. Those files are gitignored because Mixamo files
-  can't be redistributed and the repo is public; `laptop/assets/README.md` lists
-  them. All files share one skeleton. `Standing Idle.fbx` supplies the mesh.
-  Upright biking uses "Flying Bicycle Kick" (seated, hands on bars), with a bike
-  prop fitted to the clip's foot/hand/hip positions. Air-biking uses
-  "Bicycle Crunch". Each clip loops exactly one stride or pedal turn (measured),
-  so timeScale = smoothed cadence_hz x clip duration. Hips x/z are pinned
-  (in place). The pose names are the stick figure's (`poseName()`), and the
-  classic script calls `avatar3d.update(...)` instead of `drawAvatar` when 3D is
-  on. Fallback to the stick figure happens on file://, no three.js, or missing
-  FBX, and the reason shows in the panel. The page must be served:
-  `python laptop/serve.py` (localhost:8000, 127.0.0.1 only). Face photo:
-  `HEAD_PHOTO` / `player.photo` becomes a round sprite placed at the head bone.
+- **3D avatar (2026-10-26):** a `<script type="module">` at the end of
+  dashboard.html loads three.js 0.170.0 (import map, jsDelivr) and
+  `laptop/assets/avatar.glb` with GLTFLoader. The GLB is the student's Meshy
+  character with all its clips; it is committed with its texture shrunk to
+  1024 px by `laptop/shrink_glb.py` (rerun after a re-export). Clips are picked
+  by name (`CLIPS`):
+  - standing = `Listening_Gesture`, walking = `Walking`, running = `Running`.
+  - Biking = the first 0-0.62 s of `Unicycle_Jump_Dismount`, played ping-pong.
+    That span is half a pedal turn, so forward and back makes one full turn; the
+    clip jumps off the unicycle after ~1 s, and that part is never played. A
+    unicycle wheel is fitted under it.
+  - Air-bike = `bicycle_crunch`.
+
+  Each looping clip is one stride or pedal turn (measured), so timeScale =
+  smoothed cadence_hz x cycle length. Hips x/z are pinned (in place). Each
+  clip gets a floor offset: the crunch is exported 1.4 m below the floor, and
+  the bike is lowered so the wheel stands on the floor. The offset is blended
+  by action weight during cross-fades. Pose names are the stick figure's
+  (`poseName()`); the classic script calls `avatar3d.update(...)` instead of
+  `drawAvatar` when 3D is on. It falls back to the stick figure on file://,
+  without three.js, or if the GLB is missing, and the reason shows in the
+  panel. The page must be served: `python laptop/serve.py` (localhost:8000,
+  127.0.0.1 only). Face photo: `HEAD_PHOTO` / `player.photo` becomes a round sprite placed at the head bone.
 - The sketch's per-sample CSV on Monitor is off (`PRINT_CSV = false`) to keep the
   router link light; `#` status lines still print.
 - Optional later: Whoop heart rate over BLE, shown on the dashboard only. It is

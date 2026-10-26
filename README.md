@@ -56,7 +56,7 @@ me193-gait/
 │   └── python/      Linux-side Python: windowing, both classifiers, LED matrix, MQTT
 ├── tools/           i2c_scanner/: standalone sketch for checking the IMU wiring
 ├── laptop/          data logger, model training and web dashboard scripts
-│   └── assets/      Mixamo FBX files for the dashboard's 3D avatar (not in git, see its README)
+│   └── assets/      avatar.glb, the dashboard's 3D character (see its README)
 ├── data/
 │   ├── raw/         labeled CSV recordings from the real sensor (the only data used for training)
 │   └── sim/         recordings of simulator data, made with logger.py --sim (never used for training)
@@ -193,15 +193,15 @@ then you open that address yourself.) Enter a name and press Start. Press `F` fo
 fullscreen. The page only listens to MQTT and never sends anything, so the name stays
 on that screen.
 
-**3D avatar.** The avatar is a 3D character (three.js) animated from Mixamo files in
-`laptop/assets/`. It cross-fades between standing, walking, running, biking and
-air-biking (when gravity shows you're on your back) following Model 2. Its playback
-speed follows the measured cadence, smoothed. The files aren't in git; to get them,
-see `laptop/assets/README.md`. The button in the avatar panel switches to the 2D
-stick figure and back. The stick figure is also used automatically when the 3D
-can't load. That happens if `dashboard.html` is opened by double-clicking, since
+**3D avatar.** The avatar is a 3D character (three.js), loaded from
+`laptop/assets/avatar.glb`. It cross-fades between standing, walking, running, biking
+and biking on your back (when gravity shows you're lying down) following Model 2. Its
+playback speed follows the measured cadence, smoothed. `laptop/assets/README.md`
+lists which clip is used for each activity. The button in the avatar panel switches
+to the 2D stick figure and back. The stick figure is also used automatically when the
+3D can't load. That happens if `dashboard.html` is opened by double-clicking, since
 browsers block a local file from loading other local files. It also happens with no
-internet, or when the FBX files are missing. The panel then says why. Add
+internet, or when `avatar.glb` is missing. The panel then says why. Add
 `?avatar=stick` to the address to start with the stick figure. To put a face on the
 head, set `HEAD_PHOTO` in `dashboard.html`. The photo goes on the stick figure's head
 and as a round badge that follows the 3D head.

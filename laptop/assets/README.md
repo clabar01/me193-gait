@@ -1,23 +1,26 @@
-# 3D avatar assets (not in git)
+# 3D avatar asset
 
-`laptop/dashboard.html` loads these Mixamo files for its 3D avatar. They are
-gitignored: Mixamo's terms allow using them in a project but not
-redistributing the files themselves, and this repo is public. Without them the
-dashboard shows the stick figure.
+`avatar.glb` is the dashboard's 3D character (made with Meshy), with all of its
+animations in one file. Its texture was shrunk from 4096 to 1024 px so the file
+is small enough for git (23.3 MB -> 3.8 MB):
 
-To set them up, download from [mixamo.com](https://www.mixamo.com) (free Adobe
-account) with the same character for every file, **FBX Binary**, **In Place**
-ticked where offered, and save them here under exactly these names:
+```bash
+python laptop/shrink_glb.py laptop/assets/avatar.glb   # keeps avatar.original.glb (gitignored)
+```
 
-| File | Mixamo animation | Used for |
+Run that again after re-exporting from Meshy.
+
+The dashboard picks clips by name (`CLIPS` in the 3D AVATAR section of
+`laptop/dashboard.html`):
+
+| Activity | Clip | Notes |
 | --- | --- | --- |
-| `Standing Idle.fbx` | Standing Idle, **With Skin** | the character mesh + standing |
-| `Walking.fbx` | Walking | walking |
-| `Running.fbx` | Running | running |
-| `Flying Bicycle Kick.fbx` | Flying Bicycle Kick | biking (seated, hands on bars) |
-| `Bicycle Crunch.fbx` | Bicycle Crunch | air-biking (on your back) |
+| standing | `Listening_Gesture` (9.3 s) | idle, with one arm gesture |
+| walking | `Walking` (1.07 s) | one stride per loop |
+| running | `Running` (0.67 s) | one stride per loop |
+| biking | `Unicycle_Jump_Dismount`, 0-0.62 s only | the riding part, played back and forth (= one pedal turn); a unicycle wheel is drawn under it |
+| biking on your back | `bicycle_crunch` (1.13 s) | one pedal turn per loop; exported 1.4 m below the floor, lifted in code |
 
-Only `Standing Idle.fbx` needs the skin; the others can be "Without Skin"
-(much smaller). The file names are set in the 3D AVATAR section of
-`dashboard.html` (`CHARACTER`, `CLIPS`). Each clip should loop once per stride
-or pedal turn; if a new one loops twice, set its `CYCLES` entry to 2.
+If a re-export renames a clip, update `CLIPS`. If a clip loops more than one
+stride or pedal turn, set its `cycles`, so the animation speed still matches
+the measured cadence.

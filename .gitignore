@@ -227,6 +227,7 @@ data/sim/
 __pycache__/
 .DS_Store
 *.log
-# Mixamo FBX files for the dashboard's 3D avatar: Adobe's terms don't allow
-# redistributing them as files, and this repo is public. See laptop/assets/README.md.
+# 3D avatar: avatar.glb (texture shrunk) is committed; the full-size original
+# kept by laptop/shrink_glb.py and any Mixamo FBX downloads stay local.
+laptop/assets/*.original.glb
 laptop/assets/*.fbx
