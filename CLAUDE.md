@@ -53,7 +53,9 @@ a Notion page with a demo video, a graphic of the model, and a GitHub link.
   `monitor` ignores SIGTERM. Use `timeout -k 2 N arduino-app-cli monitor` and
   kill leftover monitor processes before concluding the sketch is silent.
 - `AirFour.local` sometimes doesn't resolve after a reboot; the board's IP was
-  192.168.1.173 on 2026-10-23.
+  192.168.1.173 on 2026-10-23. On the student's phone hotspot (2026-10-26) it is
+  172.20.10.11: use `BOARD=arduino@172.20.10.11`. SSH only works when the laptop
+  is on the same hotspot; MQTT works from anywhere.
 - The Uno Q and a power bank ride in a fanny pack on the hip.
 
 ## Models (both required, no neural nets)
@@ -221,8 +223,12 @@ python laptop/compare.py    # -> figures/model_comparison.png
   `gyro_energy <= 1752 -> standing` (is the thigh rotating?), then
   `grav_x <= 0.966 -> biking else walking` (is the thigh vertical?), both physical
   and calibration-robust, and held-out accuracy went from 97% to 100% (72 windows).
-  Keep Model 2 on variability, cadence, peaks and gravity *direction*. Watch the
-  `grav_x` split once running/upright biking exist: walking sits near 0.99.
+  Keep Model 2 on variability, cadence, peaks and gravity *direction*.
+  Retrained 2026-10-26 with running and upright biking added (1 subject, 625
+  windows). Model 2 is now `grav_x <= 0.910 -> biking`, then
+  `peak_ax <= 1.241 -> standing`, then `std_ax <= 0.884 -> walking else running`,
+  still calibration-robust. Model 1 now uses `peak_ax` (thresholds 1.047 / 2.294 / 3.249 g:
+  standing < biking < walking < running).
 
 ## Phase 6: live classification on the board
 

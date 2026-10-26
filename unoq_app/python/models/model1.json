@@ -1,32 +1,35 @@
 {
-  "feature": "peak_az",
+  "feature": "peak_ax",
   "classes": [
     "standing",
     "biking",
-    "walking"
+    "walking",
+    "running"
   ],
   "thresholds": [
-    0.4828,
-    1.5581
+    1.0470000000000002,
+    2.2942,
+    3.2487500000000002
   ],
   "trained_on": {
     "subjects": [
       "ceci"
     ],
-    "windows": 237,
+    "windows": 625,
     "classes": [
       "standing",
       "walking",
+      "running",
       "biking"
     ]
   },
   "evaluation": {
     "method": "time split within each recording (first 70% train, rest test; only 1 subject: ceci)",
     "held_out_accuracy": {
-      "peak_ax": 0.7222,
-      "peak_ay": 0.6806,
-      "peak_az": 0.8056
+      "peak_ax": 0.9158,
+      "peak_ay": 0.7474,
+      "peak_az": 0.8526
     }
   },
-  "created": "2026-10-24"
+  "created": "2026-10-26"
 }
