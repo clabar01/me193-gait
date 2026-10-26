@@ -252,17 +252,14 @@ python laptop/compare.py    # -> figures/model_comparison.png
   `ME193/ceci/gait/test/sim/raw`), publishing under `ME193/ceci/gait/test/`
   (dashboard: `python laptop/serve.py --query "prefix=ME193/ceci/gait/test"`)
   (main.py reads `GAIT_TOPIC_PREFIX`, unset on the board). LED calls print as ASCII.
-- **Board state 2026-10-24 ~00:20 UTC:** a deploy was interrupted (by mistake, while
-  the board briefly came online). The board has the Phase 6 Python side and models
-  in `~/ArduinoApps/me193_gait/python/` but still the OLD sketch (no
-  `show_activity`, so LED calls log a warning), and the app was left STOPPED; it is
-  the default app, so it starts at the next boot and will first install numpy (not
-  yet verified on the board). That copy of main.py imports live.py at the top, so
-  if numpy fails it won't forward raw data either. Next step: run
-  `laptop/deploy_board.sh --sketch` (ships the fixed main.py + new sketch), then
-  power-cycle, then check the logs (`arduino-app-cli app logs`) for
-  `models loaded` and the pred topic for messages. The new sketch has passed only a
-  host syntax check, not a board compile.
+- **Board state 2026-10-26 18:28 UTC:** fully deployed with
+  `laptop/deploy_board.sh --sketch` (LED sketch compiled and flashed in ~3.5 min),
+  then power-cycled. Verified after the cold boot: numpy installed
+  ("Requirements already installed"), `models loaded`, 50 Hz, MQTT up, preds on
+  `ME193/ceci/gait/pred` every 500 ms, no `show_activity` errors. After a cold
+  boot the first prediction came ~35 s after "App started".
+  If a `show_activity` call fails, main.py warns every 5 s (LED_REFRESH_S), not on
+  every prediction.
 
 ## Ground rules
 

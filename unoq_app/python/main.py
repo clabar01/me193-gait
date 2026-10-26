@@ -164,9 +164,9 @@ def classifier_loop():
             client.publish(PRED_TOPIC, json.dumps(pred), qos=0)
         now = time.monotonic()
         if pred["model2"] != last_label or now - last_led >= LED_REFRESH_S:
+            last_led = now          # also on failure, so a missing sketch method warns every 5 s, not every 0.5 s
             try:
                 Bridge.call("show_activity", pred["model2"])
-                last_led = now
             except Exception as e:
                 logger.warning(f"show_activity failed: {e}")
             if pred["model2"] != last_label:
