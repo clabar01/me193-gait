@@ -153,7 +153,13 @@ For display, report cadence as:
   `drawAvatar` when 3D is on. It falls back to the stick figure on file://,
   without three.js, or if the GLB is missing, and the reason shows in the
   panel. The page must be served: `python laptop/serve.py` (localhost:8000,
-  127.0.0.1 only). Face photo: `HEAD_PHOTO` / `player.photo` becomes a round sprite placed at the head bone.
+  127.0.0.1 only). The view uses OrbitControls (drag rotate, scroll/pinch zoom,
+  right-drag/two-finger pan); "Reset view" or a double-click restores the default
+  framing, which follows resizes until the user moves the view. Upright biking
+  draws a bicycle (`BIKE` sizes) fitted to the bike clip's foot/hip positions,
+  centred on the floor disc (`shiftZ`). Cranks follow the feet. The arms are bent
+  onto the grips each frame by a two-bone solve (`armsOnBars`), weighted by the
+  bike clip's cross-fade weight. Face photo: `HEAD_PHOTO` / `player.photo` becomes a round sprite placed at the head bone.
 - The sketch's per-sample CSV on Monitor is off (`PRINT_CSV = false`) to keep the
   router link light; `#` status lines still print.
 - Optional later: Whoop heart rate over BLE, shown on the dashboard only. It is
@@ -167,7 +173,12 @@ For display, report cadence as:
 - `data/sim/`: recordings of simulator data, saved with `--sim`, with "sim" in
   the filename. **Training and evaluation scripts must only ever read `data/raw/`.**
 - `models/`: exported model files
-- `figures/`: plots for the Notion page
+- `figures/`: plots for the Notion page. `model_diagram.png` (how each model
+  decides, no results) is drawn from the exported models by
+  `laptop/model_diagram.py`; rerun it after retraining. `dashboard.png` and
+  `avatar_poses.png` are screenshots made with simulator data.
+- `docs/notion_page.md`: Notion page draft. Its Results and Reflection sections are
+  placeholders for the student. Images use raw.githubusercontent.com URLs.
 
 ## Shared feature code
 

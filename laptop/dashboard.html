@@ -25,6 +25,8 @@
   python laptop/serve.py. Opened as a file, or if anything fails to load, the
   stick figure is used. The 3D/Stick button switches by hand
   (remembered in this browser); ?avatar=stick or ?avatar=3d overrides it.
+  The 3D view can be rotated (drag), zoomed (scroll/pinch) and moved
+  (right-drag/two fingers); Reset view or a double-click restores it.
 -->
 <script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
 <script type="importmap">
@@ -190,6 +192,8 @@
   }
   .avatar-tools .note { font-size: clamp(0.8rem, 1vw, 1rem); color: var(--muted); text-align: right; }
   .avatar-tools button[hidden] { display: none; }
+  #avatar3d { touch-action: none; cursor: grab; }
+  #avatar3d:active { cursor: grabbing; }
   .caption {
     font-size: clamp(1.2rem, 2.2vw, 2.4rem); font-weight: 600;
     text-align: center; color: var(--text-2); padding-top: 6px;
@@ -292,6 +296,7 @@
   <section class="avatar card" aria-label="Avatar driven by Model 2">
     <div class="avatar-tools">
       <span id="avatarNote" class="note"></span>
+      <button id="viewBtn" class="fs" type="button" hidden title="Drag to rotate, scroll or pinch to zoom, right-drag or two fingers to move">Reset view</button>
       <button id="avatarBtn" class="fs" type="button" hidden>Stick figure</button>
     </div>
     <canvas id="avatar"></canvas>
@@ -554,6 +559,7 @@ function renderAvatarMode() {
   const btn = $("avatarBtn");
   btn.hidden = avatar3dState !== "ready";
   btn.textContent = on3d ? "Stick figure" : "3D avatar";
+  $("viewBtn").hidden = !on3d;
   let note = "";
   if (avatarWant === "3d" && avatar3dState === "loading") note = "Loading 3D…";
   if (avatarWant === "3d" && avatar3dState === "failed") note = `3D off: ${avatar3dError}`;
@@ -565,6 +571,8 @@ $("avatarBtn").addEventListener("click", () => {
   try { localStorage.setItem("me193.avatar", avatarWant); } catch {}
   renderAvatarMode();
 });
+
+$("viewBtn").addEventListener("click", () => avatar3d?.resetView());
 
 // called by the 3D module
 window.avatar3dReady = (api) => { avatar3d = api; avatar3dState = "ready"; renderAvatarMode(); };
@@ -926,22 +934,32 @@ const CLIPS = {
   // Upright biking: the riding part at the start of the unicycle clip. From 0 to
   // 0.62 s the feet do half a pedal turn (left foot top -> bottom); played
   // forward then backward (ping-pong) that is one full turn. After ~1 s the clip
-  // jumps off the unicycle, which is never played.
+  // jumps off the unicycle, which is never played. A bicycle is drawn under it
+  // and the arms (held out for balance in the clip) are bent onto the handlebars.
   bike:     { name: "Unicycle_Jump_Dismount", start: 0, end: 0.62, pingPong: true, cycles: 1 },
   airbike:  { name: "bicycle_crunch", cycles: 1 },       // on the back, one pedal turn per loop
 };
 // Playback rate = cadence (Hz) x the time one cycle takes at normal speed.
 // cycles = strides (or pedal turns) in one loop of the clip, measured 2026-10-26.
 const VIEW_AZIMUTH = -65 * Math.PI / 180;   // camera angle round the body; mostly side-on, facing right
-const WHEEL_R = 0.33;                       // unicycle wheel radius (m) drawn under the bike clip
+const BIKE = {                              // bicycle drawn under the bike clip (m), fitted to the rider
+  wheelR: 0.33,         // wheel radius
+  bbHeight: 0.28,       // bottom bracket (crank axle) above the floor
+  rear: 0.42,           // rear axle behind the bottom bracket
+  front: 0.62,          // front axle ahead of the bottom bracket
+  crank: 0.17,          // crank arm length
+  bar: [0.42, 0.12],    // handlebar centre: ahead of / above the hips
+  gripHalf: 0.21,       // half the handlebar width
+};
 const PHOTO_SIZE = 0.26;                    // face sprite diameter (m)
 
 async function initAvatar3d() {
   if (location.protocol === "file:") throw new Error("serve the page with python laptop/serve.py");
-  let THREE, GLTFLoader;
+  let THREE, GLTFLoader, OrbitControls;
   try {
     THREE = await import("three");
     ({ GLTFLoader } = await import("three/addons/loaders/GLTFLoader.js"));
+    ({ OrbitControls } = await import("three/addons/controls/OrbitControls.js"));
   } catch {
     throw new Error("couldn't load three.js (no internet?)");
   }
@@ -1003,11 +1021,20 @@ async function initAvatar3d() {
   applyTheme();
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applyTheme);
 
-  // ---- per-clip floor offset, and the unicycle fitted to the bike clip ----
+  // ---- per-clip floor offset, and the bicycle fitted to the bike clip ----
   // Sample each clip: where the body's lowest point is, and for the bike clip
-  // where the feet and hips go (to place the wheel and saddle).
-  const lift = {};
-  const unicycle = new THREE.Group();
+  // where the feet, hips and shoulders go (to place the bicycle under the rider).
+  const lift = {}, shiftZ = {};          // per clip: raise to the floor, slide to centre
+  const bicycle = new THREE.Group();     // in the character's coordinates, raised like it
+  const bike = {};                       // fitted points: bb, grips, crank meshes
+  const tube = (r) => new THREE.Mesh(new THREE.CylinderGeometry(r, r, 1, 12), propMat);
+  // stretch a unit cylinder between a and b
+  const place = (m, a, b) => {
+    m.position.copy(a).add(b).multiplyScalar(0.5);
+    m.scale.set(1, Math.max(a.distanceTo(b), 1e-4), 1);
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
+    return m;
+  };
   {
     const probe = new THREE.AnimationMixer(character);
     const w = new THREE.Vector3();
@@ -1015,7 +1042,7 @@ async function initAvatar3d() {
       probe.stopAllAction();
       probe.clipAction(clip).play();
       let low = Infinity;
-      const feet = [], hips = [];
+      const feet = [], hips = [], shoulders = { Left: [], Right: [] };
       for (let i = 0; i < 16; i++) {
         probe.setTime(clip.duration * i / 16);
         character.updateMatrixWorld(true);
@@ -1024,32 +1051,105 @@ async function initAvatar3d() {
         if (pose === "bike") {
           for (const b of [bones.LeftFoot, bones.RightFoot]) feet.push(b.getWorldPosition(w).clone());
           hips.push(bones.Hips.getWorldPosition(w).clone());
+          for (const side of ["Left", "Right"]) shoulders[side].push(bones[side + "Arm"].getWorldPosition(w).clone());
         }
       }
       // only fix clips that are clearly off the floor (the crunch is 1.4 m under it);
       // a few cm of heel below the floor in walking/running is normal skinning
       lift[pose] = Math.abs(low) > 0.1 ? -low : 0;
+      shiftZ[pose] = 0;
       if (pose === "bike") {
-        // wheel hub at the middle of the feet's path, lowered so the wheel stands on the floor
-        const mean = (ps) => ps.reduce((a, p) => a.add(p), new THREE.Vector3()).divideScalar(ps.length).setX(0);
-        const hub = mean(feet), seat = mean(hips).add(new THREE.Vector3(0, -0.1, 0));
-        lift.bike = WHEEL_R - hub.y;
-        const wheel = new THREE.Mesh(new THREE.TorusGeometry(WHEEL_R, 0.025, 12, 48), propMat);
-        wheel.position.copy(hub);
-        wheel.rotation.y = Math.PI / 2;
-        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, seat.y - hub.y, 12), propMat);
-        post.position.set(0, (seat.y + hub.y) / 2, hub.z);
-        const saddle = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.04, 0.24), propMat);
-        saddle.position.set(0, seat.y, hub.z);
-        unicycle.add(wheel, post, saddle);
-        unicycle.position.y = lift.bike;
+        const mean = (ps) => ps.reduce((a, p) => a.add(p), new THREE.Vector3()).divideScalar(ps.length);
+        const bb = mean(feet).setX(0);                         // crank axle: middle of the feet's path
+        const hip = mean(hips).setX(0);
+        lift.bike = BIKE.bbHeight - bb.y;
+        const axleY = BIKE.wheelR - lift.bike;                 // wheels stand on the floor
+        const rear = new THREE.Vector3(0, axleY, bb.z - BIKE.rear);
+        const front = new THREE.Vector3(0, axleY, bb.z + BIKE.front);
+        const seat = hip.clone().add(new THREE.Vector3(0, -0.1, 0));
+        const bar = hip.clone().add(new THREE.Vector3(0, BIKE.bar[1], BIKE.bar[0]));
+        const head = new THREE.Vector3(0, bar.y - 0.1, front.z - 0.08);   // top of the head tube
+        for (const c of [rear, front]) {
+          const wheel = new THREE.Mesh(new THREE.TorusGeometry(BIKE.wheelR, 0.022, 10, 48), propMat);
+          wheel.position.copy(c);
+          wheel.rotation.y = Math.PI / 2;
+          bicycle.add(wheel);
+        }
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(0.09, 0.012, 8, 32), propMat);
+        ring.position.copy(bb);
+        ring.rotation.y = Math.PI / 2;
+        bicycle.add(ring);
+        for (const [a, b] of [[rear, bb], [rear, seat], [seat, bb], [seat, head], [head, bb], [head, front], [head, bar]]) {
+          bicycle.add(place(tube(0.02), a, b));
+        }
+        const saddle = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.04, 0.26), propMat);
+        saddle.position.copy(seat);
+        bicycle.add(saddle);
+        // handlebar across the bike; grips on the side each shoulder is on
+        bike.grips = {};
+        for (const side of ["Left", "Right"]) {
+          const sx = Math.sign(mean(shoulders[side]).x - hip.x) || (side === "Left" ? 1 : -1);
+          bike.grips[side] = bar.clone().setX(sx * BIKE.gripHalf);
+        }
+        bicycle.add(place(tube(0.016), bike.grips.Left, bike.grips.Right));
+        bike.bb = bb;
+        bike.cranks = [tube(0.014), tube(0.014)];
+        bicycle.add(...bike.cranks);
+        shiftZ.bike = -(rear.z + front.z) / 2;               // centre the bike on the floor disc
+        bicycle.position.set(0, lift.bike, shiftZ.bike);
       }
     }
     probe.stopAllAction();
     probe.uncacheRoot(character);
   }
-  unicycle.visible = false;
-  scene.add(unicycle);
+  bicycle.visible = false;
+  scene.add(bicycle);
+
+  // Bend each arm onto its grip: a two-bone solve for the elbow, then turn the
+  // upper arm and forearm to point at it. Weighted by how much of the bike clip
+  // is showing, so it blends in and out with the cross-fade.
+  const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3();
+  const _q = new THREE.Quaternion(), _qp = new THREE.Quaternion(), _qb = new THREE.Quaternion();
+  function aim(bone, child, target, weight) {
+    const from = bone.getWorldPosition(_a);
+    const cur = child.getWorldPosition(_b).sub(from).normalize();
+    const want = _c.copy(target).sub(from).normalize();
+    _q.setFromUnitVectors(cur, want).multiply(bone.getWorldQuaternion(_qb));     // new world rotation
+    _q.premultiply(bone.parent.getWorldQuaternion(_qp).invert());               // -> parent space
+    bone.quaternion.slerp(_q, weight);
+    bone.updateMatrixWorld(true);
+  }
+  function armsOnBars(weight) {
+    character.updateMatrixWorld(true);
+    for (const side of ["Left", "Right"]) {
+      const arm = bones[side + "Arm"], fore = bones[side + "ForeArm"], hand = bones[side + "Hand"];
+      const grip = bicycle.localToWorld(bike.grips[side].clone());
+      const s = arm.getWorldPosition(new THREE.Vector3());
+      const l1 = s.distanceTo(fore.getWorldPosition(_d));
+      const l2 = _d.distanceTo(hand.getWorldPosition(_a));
+      const toGrip = grip.clone().sub(s);
+      const d = Math.min(toGrip.length(), l1 + l2 - 1e-3);
+      const dir = toGrip.normalize();
+      // elbows bend down, back and a little outward
+      const pole = new THREE.Vector3(Math.sign(s.x - root.position.x) * 0.4, -1, -0.4);
+      pole.addScaledVector(dir, -pole.dot(dir)).normalize();
+      const along = (l1 * l1 + d * d - l2 * l2) / (2 * d);
+      const elbow = s.clone().addScaledVector(dir, along).addScaledVector(pole, Math.sqrt(Math.max(0, l1 * l1 - along * along)));
+      aim(arm, fore, elbow, weight);
+      aim(fore, hand, grip, weight);
+    }
+  }
+
+  // cranks follow the feet round the crank axle
+  function updateCranks() {
+    const bb = bicycle.localToWorld(bike.bb.clone());
+    [bones.LeftFoot, bones.RightFoot].forEach((foot, i) => {
+      const f = foot.getWorldPosition(_a);
+      const dir = _b.set(0, f.y - bb.y, f.z - bb.z).normalize();
+      const end = bike.bb.clone().addScaledVector(dir, BIKE.crank);
+      place(bike.cranks[i], bike.bb, end);
+    });
+  }
 
   // ---- face photo hook: a round sprite that follows the head bone ----
   const photoMat = new THREE.SpriteMaterial({ depthTest: false });
@@ -1092,6 +1192,29 @@ async function initAvatar3d() {
   let current = "standing";
   actions.standing.play();
 
+  // Drag to rotate, scroll/pinch to zoom, right-drag/two-finger drag to move
+  // (like Meshy's viewer). "Reset view" (or a double-click) goes back to the
+  // default framing, which also follows window resizes until the view is moved.
+  const controls = new OrbitControls(camera, canvas);
+  controls.enableDamping = true;
+  controls.minDistance = 1.2;
+  controls.maxDistance = 14;
+  controls.maxPolarAngle = Math.PI * 0.58;       // don't go far under the floor
+  let userMoved = false;
+  controls.addEventListener("start", () => { userMoved = true; });
+  canvas.addEventListener("dblclick", () => resetView());
+
+  function resetView() {
+    userMoved = false;
+    // keep a 2.5 m wide x 2 m tall box around the body in view
+    const t = Math.tan(camera.fov * Math.PI / 360);
+    const dist = Math.max(1.05 / t, 1.35 / (t * camera.aspect)) + 0.6;
+    const look = new THREE.Vector3(0, 0.8, 0);
+    camera.position.set(dist * Math.sin(VIEW_AZIMUTH), 0.45, dist * Math.cos(VIEW_AZIMUTH)).add(look);
+    controls.target.copy(look);
+    controls.update();
+  }
+
   let viewW = 0, viewH = 0;
   function fitView() {
     const w = canvas.clientWidth, h = canvas.clientHeight;
@@ -1099,13 +1222,8 @@ async function initAvatar3d() {
     viewW = w; viewH = h;
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
-    // keep a 2.5 m wide x 2 m tall box around the body in view
-    const t = Math.tan(camera.fov * Math.PI / 360);
-    const dist = Math.max(1.05 / t, 1.35 / (t * camera.aspect)) + 0.6;
-    const look = new THREE.Vector3(0, 0.8, 0);
-    camera.position.set(dist * Math.sin(VIEW_AZIMUTH), 0.45, dist * Math.cos(VIEW_AZIMUTH)).add(look);
-    camera.lookAt(look);
     camera.updateProjectionMatrix();
+    if (!userMoved) resetView();
   }
 
   const toCamera = new THREE.Vector3();
@@ -1122,16 +1240,19 @@ async function initAvatar3d() {
       actions[current].timeScale = pose === "standing" ? 1 : cadenceHz * cycleS[pose];
       mixer.update(dt);
 
-      // floor offset follows the cross-fade: weighted by each clip's current weight
-      let y = 0, wsum = 0;
+      // floor offset and centring follow the cross-fade: weighted by each clip's current weight
+      let y = 0, z = 0, wsum = 0;
       for (const [p, a] of Object.entries(actions)) {
         const wt = a.isRunning() ? a.getEffectiveWeight() : 0;
-        y += wt * lift[p]; wsum += wt;
+        y += wt * lift[p]; z += wt * shiftZ[p]; wsum += wt;
       }
-      root.position.y = wsum ? y / wsum : 0;
+      root.position.set(0, wsum ? y / wsum : 0, wsum ? z / wsum : 0);
 
-      unicycle.visible = bikeAlpha > 0.01;
+      const onBike = actions.bike.isRunning() ? actions.bike.getEffectiveWeight() : 0;
+      if (onBike > 0.01) armsOnBars(onBike);
+      bicycle.visible = bikeAlpha > 0.01;
       propMat.opacity = bikeAlpha;
+      if (bicycle.visible) updateCranks();
 
       setPhoto(photo);
       if (photoSprite.visible) {
@@ -1143,8 +1264,10 @@ async function initAvatar3d() {
       }
 
       fitView();
+      controls.update();
       renderer.render(scene, camera);
     },
+    resetView,
   };
 }
 

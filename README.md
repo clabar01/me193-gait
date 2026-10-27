@@ -12,6 +12,38 @@ The project compares two classifiers that run side by side:
 
 Neither model uses a neural network.
 
+![Live dashboard: avatar, cadence, accel plot and both models' predictions (simulated data)](figures/dashboard.png)
+
+## How it works
+
+Every 0.5 s the Uno Q takes the last 2 s of IMU samples, removes single-sample
+glitches, computes features with the same code used for training, and runs both
+models. Model 2's label is smoothed by a majority vote over its last 3 predictions
+and shown as an icon on the LED matrix. Both models' labels and the measured
+cadence go to the dashboard over MQTT.
+
+![How each model decides](figures/model_diagram.png)
+
+- **Model 1** looks at one number per window: the largest acceleration on one axis
+  (the axis is picked during training). Thresholds split that range into classes.
+- **Model 2** is a shallow decision tree. It can use any feature from accel and gyro:
+  variability, peaks, rotation energy, cadence (FFT of the thigh's swing) and the
+  direction of gravity (how upright the thigh is). Features that depend on the
+  sensor's calibration (absolute levels and axis means) are left out, so the tree
+  splits on physical quantities rather than this particular sensor's offsets.
+
+The graphic is drawn from the exported models by `python laptop/model_diagram.py`.
+
+## Quick start
+
+```bash
+python laptop/serve.py                  # dashboard at http://localhost:8000/dashboard.html
+python laptop/simulator.py --random --pred   # no board? fake data + fake predictions
+```
+
+With the board: power it on (the app starts at boot), wear the sensor, open the
+dashboard. The sections below cover recording data, training and deploying.
+
 ## Hardware setup
 
 | Part | Notes |
@@ -61,7 +93,8 @@ me193-gait/
 │   ├── raw/         labeled CSV recordings from the real sensor (the only data used for training)
 │   └── sim/         recordings of simulator data, made with logger.py --sim (never used for training)
 ├── models/          exported model files loaded by the Uno Q app
-├── figures/         plots for the project write-up
+├── figures/         plots for the project write-up (model_diagram.png, dashboard.png, ...)
+├── docs/            notion_page.md: text for the Notion project page
 ├── requirements.txt laptop-side Python dependencies
 └── CLAUDE.md        project context for Claude Code
 ```
@@ -71,7 +104,7 @@ me193-gait/
 Requires Python 3.
 
 ```bash
-git clone <this-repo-url>
+git clone https://github.com/clabar01/me193-gait.git
 cd me193-gait
 python3 -m venv .venv
 source .venv/bin/activate
@@ -80,18 +113,17 @@ pip install -r requirements.txt
 
 ## Running
 
-The scripts are still being written. The workflow will be:
+The workflow:
 
-1. **Collect data.** Run the Uno Q app in logging mode and record labeled sessions
-   for each activity and person on the laptop. Recordings are saved to `data/raw/`.
-2. **Train.** Run the training scripts in `laptop/` to fit both models with
-   leave-one-subject-out evaluation. Exported models go in `models/` and plots go in
-   `figures/`.
-3. **Deploy.** Copy the exported models into the Uno Q app and run it from Arduino App Lab.
-4. **Watch live.** Start the laptop dashboard. It subscribes to the MQTT topics and
-   shows both models' predictions side by side.
-
-The exact commands will be added here as each script is written.
+1. **Record.** The board streams raw samples over MQTT while worn;
+   `laptop/logger.py` saves labeled recordings to `data/raw/`
+   ([Recording data](#recording-data)).
+2. **Train.** Four scripts turn the recordings into windows, fit both models and
+   draw the figures ([Features and models](#features-and-models)).
+3. **Deploy.** `laptop/deploy_board.sh` copies the new models to the board
+   ([Deploying to the Uno Q](#deploying-to-the-uno-q)).
+4. **Watch live.** `python laptop/serve.py` opens the dashboard
+   ([Live dashboard](#live-dashboard)).
 
 ### Deploying to the Uno Q
 
@@ -205,7 +237,14 @@ to the 2D stick figure and back. The stick figure is also used automatically whe
 3D can't load. That happens if `dashboard.html` is opened by double-clicking, since
 browsers block a local file from loading other local files. It also happens with no
 internet, or when `avatar.glb` is missing. The panel then says why. Add
-`?avatar=stick` to the address to start with the stick figure. To put a face on the
+`?avatar=stick` to the address to start with the stick figure.
+
+The 3D view can be handled like Meshy's viewer: drag to rotate, scroll or pinch to
+zoom, right-drag or two-finger drag to move it around. **Reset view** (or a
+double-click) puts the camera back. When biking upright, the avatar rides a
+bicycle drawn to fit the animation, with the hands placed on the handlebars.
+
+To put a face on the
 head, set `HEAD_PHOTO` in `dashboard.html`. The photo goes on the stick figure's head
 and as a round badge that follows the 3D head.
 
@@ -231,6 +270,7 @@ python laptop/features.py   # windows + features -> data/windows.csv
 python laptop/model1.py     # Model 1 (peak accel thresholds) -> models/model1.json
 python laptop/model2.py     # Model 2 (decision tree) -> models/model2_rules.py
 python laptop/compare.py    # side-by-side confusion matrices -> figures/model_comparison.png
+python laptop/model_diagram.py   # how each model decides -> figures/model_diagram.png
 ```
 
 Both models are tested on the same held-out windows: leave-one-subject-out once
@@ -251,4 +291,5 @@ python laptop/logger.py --sim         # in a second terminal
 
 ## Links
 
-- Notion project page: _TBD_
+- GitHub: https://github.com/clabar01/me193-gait
+- Notion project page: _TBD_ (its text is drafted in `docs/notion_page.md`)
